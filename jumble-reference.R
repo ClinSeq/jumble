@@ -24,13 +24,13 @@ option_list <- list(
                 help = "folder of count RDS files"),
     make_option(c("-o", "--output_folder"), action = "store", type = "character",default = '.', 
                 help = "folder to put reference file"),
-    make_option(c("-c", "--cores"), action = "store", type = "integer",default = '.', 
+    make_option(c("-c", "--cores"), action = "store", type = "character",default = '4', 
                 help = "cores to use")
 )
 opt <- parse_args(OptionParser(option_list = option_list))
 
 
-if (!is.null(opt$cores)) registerDoParallel(cores=opt$cores)
+if (!is.null(opt$cores)) registerDoParallel(cores=as.integer(opt$cores))
 
 # opt <- list(input_folder='.',output_folder='.',cores=4)
 
@@ -107,7 +107,7 @@ targets[gene %in% c('AR','ATM','BRCA2','PTEN','RB1'),label:=gene]
 # GC content ------------------------------------------------------------
 
 targets[,gc:=as.double(NA)]
-targets[istarget]$gc <- gcContentCalc(ucsc_ranges , organism=Hsapiens)
+targets[is_target==T]$gc <- gcContentCalc(ucsc_ranges , organism=Hsapiens)
 
 
 
