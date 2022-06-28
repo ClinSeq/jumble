@@ -1,0 +1,183 @@
+---
+title: "Sample summary"
+output: 
+  html_document:
+      toc: true
+      toc_float: true
+      toc_depth: 4
+      code_folding: NULL
+      df_print: paged
+editor_options: 
+  chunk_output_type: editor
+---
+
+
+<!-- CSS style for left alignment and for tables to look ok: -->
+<style>
+body {
+position: relative;
+left: 42px;}
+.main-container {max-width: none !important;}
+table, td, th {
+align: left;
+font-size: 11px;
+border: none;
+padding-left: 5em;
+padding-right: 5em;
+min-width: 100%;
+word-wrap: break-word;
+max-width: 240px;
+margin-left: auto;
+margin-right: auto;
+margin-top: 1em;
+margin-bottom: 1em;
+}
+</style>
+
+```{r setup, include=F}
+knitr::opts_chunk$set(echo = TRUE,comment = '',warning=F,error = F)
+options(width = 1200)
+```
+
+
+# Dependencies
+
+```{r, echo=F, include=FALSE}
+
+# Depandencies
+library(data.table)
+library(ggplot2); theme_set(theme_bw())
+library(patchwork)
+library(stringr)
+library(GenomicRanges)
+
+```
+
+# Parse data
+
+```{r}
+
+# Parse data
+setwd('~/Data/CLINSEQ/frankenplot_test/')
+
+files <- dir(pattern = '.plots.RDS')
+
+# Tumor sample
+t <- readRDS(files[1])
+
+
+# Normal sample, if there is one
+
+
+```
+
+Gene shortcuts: AR [X], ATM [11], [PTEN](#chr10)
+
+# Overview
+```{r, echo=F, include=TRUE}
+
+# Print tumor sample
+
+p <- t
+
+layout <-  "ABBBB
+                CDDDD
+                EFFFF
+                GGGGG
+                HHHHH
+                IJJJJ
+                IJJJJ"
+        fig <- 
+            p$gc_rawdepth+p$order_rawdepth+
+            p$gc_log2+p$order_log2+
+            p$depth_alleleratio+p$order_alleleratio+
+            p$pos_log2+
+            p$pos_alleleratio+
+            p$nogrid+p$grid+
+            plot_layout(design = layout,guides = 'collect')
+
+
+print(fig)
+
+```
+
+
+
+# Genes
+
+
+# Chromosomes
+
+## Gene shortcuts
+
+## 1 {#chr1} 
+
+## 2 {#chr2}
+
+## 3 {#chr3}
+
+## 4 {#chr4}
+
+## 5 {#chr5} 
+
+## 6 {#chr6}
+
+## 7 {#chr7} 
+
+## 8 {#chr8} 
+
+## 9 {#chr9} 
+
+## 10 {#chr10}
+
+## 11 {#chr11} 
+
+## 12 {#chr12} 
+
+## 13 {#chr13} 
+
+## 14 {#chr14}
+
+## 15 {#chr15}
+
+## 16 {#chr16}
+
+## 17 {#chr17} 
+
+## 18 {#chr18} 
+
+## 19 {#chr19} 
+
+## 20 {#chr20} 
+
+## 21 {#chr21} 
+
+## 22 {#chr22} 
+
+## X {#chrX}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
