@@ -162,10 +162,13 @@ if (F) if (!is.null(input)) {
         # but if one name in the VCF fits the sample name better, use it:
         check <- which(str_detect(name,names))
         if (length(check)==1) ix <- check
+        
+        # Keep only this sample
+        vcf <- vcf[,ix]
+        
     }
     
-    # Keep only this sample
-    vcf <- vcf[,ix]
+    
     
     # remove SNPs that do not have 2 alleles
     alleles <- as.data.table(table(as.data.table(alt(vcf))$group))$N
@@ -250,7 +253,7 @@ if (F) if (!is.null(input)) {
     
     # Compute general model based bias estimates
     snp_rlm_model <- reference$snp_rlm_model
-    snp_table[,bias_estimate:=.04] # default from data
+    snp_table[,bias_estimate:=.04] # default 
     for (ref in unique(snp_table$ref_allele)) 
         for (alt in unique(snp_table$alt_allele)) 
             if(ref!=alt & ref != 'other') {
@@ -330,7 +333,6 @@ min1 <- function(data) {
 # Basic logR, targets (with correction for SNPs)
 targets[,rawLR:=log2(min1(count+allele_count_correction))]
 targets[,rawLR_short:=log2(min1(count_short+allele_count_correction*(count_short/count)))] # allelic correction scaled for short-fragments
-
 
 # median correct to backbone
 targets[,rawLR:=rawLR-median(rawLR[is_backbone]),by='is_target']
