@@ -184,8 +184,8 @@ snp_tables <- foreach(i=1:length(vcf_files)) %dopar% try({
         # Get read counts
         snp_table$AD <- sapply(g$AD, "[[", 2)
         snp_table$RD <- sapply(g$AD, "[[", 1)
-        snp_table$DP=snp_table$AD+snp_table$RD
-        snp_table$logDP <- log2(DP)
+        snp_table$DP <- snp_table$AD+snp_table$RD
+        snp_table[,logDP:=log2(DP)]
         
         # Compute raw allele ratio
         raw_allele_ratio <- unname(round(snp_table$AD/snp_table$DP,4))
@@ -194,11 +194,11 @@ snp_tables <- foreach(i=1:length(vcf_files)) %dopar% try({
         snp_table[allele_ratio==0,type:='none']
         
         # Add to list of tables
-        fwrite(snp_table,paste0(name,'.snptable.csv'))
+        #fwrite(snp_table,paste0(name,'.snptable.csv'))
         this_list[[j]] <- snp_table
     }
-    this_pair <- rbindlist(this_list)
-    return(this_pair)
+    this_set <- rbindlist(this_list)
+    return(this_set)
 }, silent=T)
 
 snp_table <- unique(rbindlist(snp_tables)) # in case one sample appears more than once
@@ -233,11 +233,8 @@ gc_ranges$gc3 <- gcContentCalc(gc_ranges, organism=Hsapiens)
 start(gc_ranges) <- start(gc_ranges)-1
 end(gc_ranges) <- end(gc_ranges)+1
 gc_ranges$gc5 <- gcContentCalc(gc_ranges , organism=Hsapiens)
-start(gc_ranges) <- start(gc_ranges)-5
-end(gc_ranges) <- end(gc_ranges)+5
-gc_ranges$gc15 <- gcContentCalc(gc_ranges , organism=Hsapiens)
-start(gc_ranges) <- start(gc_ranges)-43
-end(gc_ranges) <- end(gc_ranges)+43
+start(gc_ranges) <- start(gc_ranges)-48
+end(gc_ranges) <- end(gc_ranges)+48
 gc_ranges$gc101 <- gcContentCalc(gc_ranges , organism=Hsapiens)
 start(gc_ranges) <- start(gc_ranges)+50
 end(gc_ranges) <- end(gc_ranges)-50
@@ -249,7 +246,7 @@ saveRDS(snp_table,'snp_table.RDS')
 
 # SNP training table ------------------------------------------------------------
 
-train_table <- snp_table[allele_ratio>.25 & DP > 100]
+train_table <- snp_table[allele_ratio>.25]
 
 
 # Check numbers per type
@@ -296,11 +293,11 @@ plot(density(het_table$bias))
 
 
 # build test model of bias from selected features, using RLM
-biasmodel <- rlm(bias ~ logDP+gc3+gc5+gc15+gc101+peak_ld+homC_T+homT_C+homA_G+homG_A, data=het_table)
+biasmodel <- rlm(bias ~ logDP+gc3+gc5+gc101+peak_ld+homC_T+homT_C+homA_G+homG_A, data=het_table)
 summary(biasmodel)
 
 # same using lm
-lm_model <- lm(bias ~ logDP+gc3+gc5+gc15+gc101+peak_ld+homC_T+homT_C+homA_G+homG_A, data=het_table)
+lm_model <- lm(bias ~ logDP+gc3+gc5+gc101+peak_ld+homC_T+homT_C+homA_G+homG_A, data=het_table)
 summary(lm_model)
 
 # But we really need separate models per variant type
@@ -311,7 +308,7 @@ for (ref in unique(het_table$ref_allele))
             data <- het_table[ref_allele==ref & alt_allele==alt]
             if (alt=='other') data <- het_table[ref_allele==ref]
             #if (ref=='other') data <- het_table[alt_allele==alt]
-            biasmodel <- rlm(bias ~ logDP+gc3+gc5+gc15+gc101+peak_ld+homC_T+homT_C+homA_G+homG_A, data=data)
+            biasmodel <- rlm(bias ~ logDP+gc3+gc5+gc101+peak_ld+homC_T+homT_C+homA_G+homG_A, data=data)
             cat(ref,'>',alt,':\n')
             print(summary(biasmodel))
             snp_rlm_model[[paste0(ref,'_',alt)]] <- biasmodel
@@ -473,12 +470,13 @@ for (i in 1:length(allcounts)) {
 
 targets <- rbindlist(targetlist)
 #background <- rbindlist(backgroundlist)
+rm(targetlist)
 
 
 # Drop some bins ------------------------------------------------------------
 
-
-keep_targets <- targets[,quantile(count,.90),by=bin][V1 > 100]
+threshold <- median(targets$count) * 0.05
+keep_targets <- targets[,quantile(count,.90),by=bin][V1 > threshold]
 targets <- targets[bin %in% keep_targets$bin]
 #keep_background <- background[,quantile(count,.75),by=background][V1 > 100]
 #background <- background[background %in% keep_background$background]
@@ -486,10 +484,15 @@ targets <- targets[bin %in% keep_targets$bin]
 
 # SNP and Median correct ------------------------------------------------------------
 
+min1 <- function(data) {
+    data[data<1] <- 1
+    data[is.na(data)] <- 1
+    return(data)
+}
 
 # Basic logR, targets (with correction for SNPs)
-targets[,rawLR:=log2(count+allele_count_correction+1)]
-targets[,rawLR_short:=log2(count_short+allele_count_correction*(count_short/count)+1)] # allelic correction scaled for short-fragments
+targets[,rawLR:=log2(min1(count+allele_count_correction))]
+targets[,rawLR_short:=log2(min1(count_short+allele_count_correction*(count_short/count)))] # allelic correction scaled for short-fragments
 
 # Median correct
 targets[,rawLR:=rawLR-median(rawLR[is_backbone]),by=c('sample','is_target')]

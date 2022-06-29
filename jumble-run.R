@@ -202,7 +202,7 @@ if (F) if (!is.null(input)) {
     snp_table$AD <- sapply(g$AD, "[[", 2)
     snp_table$RD <- sapply(g$AD, "[[", 1)
     snp_table$DP=snp_table$AD+snp_table$RD
-    snp_table$logDP <- log2(DP)
+    snp_table[,logDP:=log2(DP)]
     
     # Compute raw allele ratio
     raw_allele_ratio <- unname(round(snp_table$AD/snp_table$DP,4))
@@ -227,11 +227,8 @@ if (F) if (!is.null(input)) {
     start(gc_ranges) <- start(gc_ranges)-1
     end(gc_ranges) <- end(gc_ranges)+1
     gc_ranges$gc5 <- gcContentCalc(gc_ranges , organism=Hsapiens)
-    start(gc_ranges) <- start(gc_ranges)-5
-    end(gc_ranges) <- end(gc_ranges)+5
-    gc_ranges$gc15 <- gcContentCalc(gc_ranges , organism=Hsapiens)
-    start(gc_ranges) <- start(gc_ranges)-43
-    end(gc_ranges) <- end(gc_ranges)+43
+    start(gc_ranges) <- start(gc_ranges)-48
+    end(gc_ranges) <- end(gc_ranges)+48
     gc_ranges$gc101 <- gcContentCalc(gc_ranges , organism=Hsapiens)
     start(gc_ranges) <- start(gc_ranges)+50
     end(gc_ranges) <- end(gc_ranges)-50
@@ -324,9 +321,15 @@ mapd <- function(data) {
 } 
 
 
+min1 <- function(data) {
+    data[data<1] <- 1
+    data[is.na(data)] <- 1
+    return(data)
+}
+
 # Basic logR, targets (with correction for SNPs)
-targets[,rawLR:=log2(count+allele_count_correction+1)]
-targets[,rawLR_short:=log2(count_short+allele_count_correction*(count_short/count)+1)] # allelic correction scaled for short-fragments
+targets[,rawLR:=log2(min1(count+allele_count_correction))]
+targets[,rawLR_short:=log2(min1(count_short+allele_count_correction*(count_short/count)))] # allelic correction scaled for short-fragments
 
 
 # median correct to backbone
