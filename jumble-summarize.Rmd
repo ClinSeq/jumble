@@ -1,18 +1,18 @@
 ---
-title: "Sample summary"
 output: 
   html_document:
-      toc: true
+      toc: false
+      theme: lumen 
       toc_float: true
       toc_depth: 4
-      code_folding: NULL
       df_print: paged
 editor_options: 
-  chunk_output_type: editor
+  chunk_output_type: console
 ---
 
 
-<!-- CSS style for left alignment and for tables to look ok: -->
+
+<!-- CSS style -->
 <style>
 body {
 position: relative;
@@ -34,15 +34,23 @@ margin-bottom: 1em;
 }
 </style>
 
+
+
+
 ```{r setup, include=F}
 knitr::opts_chunk$set(echo = TRUE,comment = '',warning=F,error = F)
 options(width = 1200)
 ```
 
+# {.tabset .tabset-pills}
 
-# Dependencies
+## Setup {.tabset}
+
+
+### Dependencies
 
 ```{r, echo=F, include=FALSE}
+
 
 # Depandencies
 library(data.table)
@@ -53,11 +61,12 @@ library(GenomicRanges)
 
 ```
 
-# Parse data
 
-```{r}
+### Parse
 
-# Parse data
+```{r, echo=F, include=T}
+
+# Parse target and SNP table for main sample
 setwd('~/Data/CLINSEQ/frankenplot_test/')
 
 files <- dir(pattern = '.plots.RDS')
@@ -67,48 +76,39 @@ t <- readRDS(files[1])
 
 
 # Normal sample, if there is one
-
+n <- NULL
 
 ```
 
-Gene shortcuts: AR [X], ATM [11], [PTEN](#chr10)
 
-# Overview
-```{r, echo=F, include=TRUE}
+### Frankenplot code
 
-# Print tumor sample
+### Chromplot code
+
+
+
+## Overview {.active}
+
+```{r, echo=F, include=TRUE, fig.height=10,fig.width=15}
+
+# Print tumor sample frankenplot (with added mutations)
 
 p <- t
 
-layout <-  "ABBBB
-                CDDDD
-                EFFFF
-                GGGGG
-                HHHHH
-                IJJJJ
-                IJJJJ"
-        fig <- 
-            p$gc_rawdepth+p$order_rawdepth+
-            p$gc_log2+p$order_log2+
-            p$depth_alleleratio+p$order_alleleratio+
-            p$pos_log2+
-            p$pos_alleleratio+
-            p$nogrid+p$grid+
-            plot_layout(design = layout,guides = 'collect')
 
 
-print(fig)
+print(p$order_rawdepth/p$order_log2/p$order_alleleratio)
+
+
+# print normal sample frankenplot (with added mutations)
+
+
 
 ```
 
 
+Frankenplot 2.0 -- Gene shortcuts: [AR](#chrX) [ATM](#chr11) [PTEN](#chr10)
 
-# Genes
-
-
-# Chromosomes
-
-## Gene shortcuts
 
 ## 1 {#chr1} 
 

@@ -13,6 +13,9 @@ suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(PSCBS))
 suppressPackageStartupMessages(library(ggplot2)); theme_set(theme_bw())
 suppressPackageStartupMessages(library(patchwork))
+suppressPackageStartupMessages(library(BSgenome.Hsapiens.UCSC.hg19))
+suppressPackageStartupMessages(library(BSgenome))
+suppressPackageStartupMessages(library(Repitools))
 
 
 # Options ------------------------------------------------------------
@@ -149,7 +152,7 @@ ranges <- makeGRangesFromDataFrame(targets)
 
 snp_allele_ratio <- FALSE
 input <- opt$snp_vcf
-if (F) if (!is.null(input)) {
+if (!is.null(input)) {
     snp_allele_ratio <- TRUE
     if (!str_detect(input,'.[vV][cC][fF]$') & !str_detect(input,'.[vV][cC][fF].[gG][zZ]$')) stop("SNP vcf file appears incorrect")
     
@@ -366,23 +369,23 @@ jcorrect <- function(temp,train_ix=NULL) {
                      family="symmetric", control = loess.control(surface = "direct"))
     temp[,lr:=lr-predict(loess_temp,temp)]
     
-    # if (!is.null(gc)) { 
-    # loess_temp=loess(lr ~ gc, data = temp,
-    #                  subset = train_ix,
-    #                  family="symmetric", control = loess.control(surface = "direct"))
-    # temp[,lr:=lr-predict(loess_temp,temp)]
-    # }
+    if (!is.null(gc)) {
+    loess_temp=loess(lr ~ gc, data = temp,
+                     subset = train_ix,
+                     family="symmetric", control = loess.control(surface = "direct"))
+    temp[,lr:=lr-predict(loess_temp,temp)]
+    }
     
     runs <- 0
     best_lr <- temp$lr
     best_mapd <- mapd(temp$lr)
     for (i in 1:(ncol(temp)-2)) {
-        
+
         temp$thispc=temp[[paste0('PC',i)]]
         loess_temp <- rlm(lr ~ thispc, data=temp,
                        subset = train_ix)
         temp[,lr:=lr-predict(loess_temp,temp)]
-        
+
         mapd <- mapd(temp$lr)
         cat(round(mapd,4),'>>')
         if (mapd < best_mapd) {
@@ -390,10 +393,10 @@ jcorrect <- function(temp,train_ix=NULL) {
             best_mapd <- mapd
             runs <- i
         }
-        
+
     }
-    cat('ran ',runs,'/',ncol(temp)-2, ' times\n')
-    return(best_lr)
+    #cat('ran ',runs,'/',ncol(temp)-2, ' times\n')
+    return(temp$lr)
 }
 
 
@@ -537,7 +540,7 @@ if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS')))
 
 
 # Save workspace ------------------------------------------------------------
-#save.image(paste0(opt$output_dir,'/',clinbarcode,'.jumble_workspace.RDS'))
+save.image(paste0(opt$output_dir,'/',clinbarcode,'.jumble_workspace.RDS'))
 
 
 # bins$bins <- 'Target'

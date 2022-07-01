@@ -114,7 +114,7 @@ targets[is_target==T]$gc <- gcContentCalc(ucsc_ranges , organism=Hsapiens)
 # Backbone definition ------------------------------------------------------------
 
 set.seed(25) # <------------------ To be reproducible.
-max_backbone_in_gene <- 50
+max_backbone_in_gene <- 20
 
 targets[,is_backbone:=chromosome %in% 1:22 & gene=='']
 for (g in unique(targets$gene)) {
