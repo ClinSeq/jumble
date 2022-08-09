@@ -150,6 +150,13 @@ ranges <- makeGRangesFromDataFrame(targets)
 # SNP allele ratio ------------------------------------------------------------
 #save.image('ws.Rdata')
 
+peakx <- function(data) {
+    d <- density(data)
+    maxy <- max(d$y)
+    maxx <- d$x[d$y==maxy][1]
+    return(maxx)
+}
+
 snp_allele_ratio <- FALSE
 input <- opt$snp_vcf
 if (!is.null(input)) {
@@ -317,12 +324,7 @@ if (!is.null(input)) {
 # LogR and genotype correction ------------------------------------------------------------
 
 
-peakx <- function(data) {
-    d <- density(data)
-    maxy <- max(d$y)
-    maxx <- d$x[d$y==maxy][1]
-    return(maxx)
-} 
+ 
 mapd <- function(data) {
     return(median(abs(diff(data))))
 } 
@@ -360,10 +362,10 @@ targets[,rawLR_short:=rawLR_short-reference$median_short]
 
 # PCA ------------------------------------------------------------
 
-tpca <- prcomp((reference$targets_ref[,-1]),center = F,scale. = F)
-tpca_short <- prcomp((targets_ref_short[,-1]),center = F,scale. = F)
-bgpca <- prcomp((background_ref[,-1]),center = F,scale. = F)
-bgpca_short <- prcomp((background_ref_short[,-1]),center = F,scale. = F)
+tpca <- prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x
+tpca_short <- prcomp(reference$targets_ref_short[,-1],center = F,scale. = F)$x
+bgpca <- prcomp(reference$background_ref[,-1],center = F,scale. = F)$x
+bgpca_short <- prcomp(reference$background_ref_short[,-1],center = F,scale. = F)$x
 
 
 
@@ -380,7 +382,7 @@ jcorrect <- function(temp,train_ix=NULL) {
                      family="symmetric", control = loess.control(surface = "direct"))
     temp[,lr:=lr-predict(loess_temp,temp)]
     
-    if (!is.null(gc)) {
+    if (all(!is.na(temp$gc))) {
     loess_temp=loess(lr ~ gc, data = temp,
                      subset = train_ix,
                      family="symmetric", control = loess.control(surface = "direct"))
@@ -546,8 +548,8 @@ fwrite(x = seg,file = paste0(opt$output_dir,'/',clinbarcode,'_dnacopy.seg'),sep 
 
 # Count file output ------------------------------------------------------------
 # (not overwrite)
-if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS')))
-    saveRDS(counts,paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS'))
+#if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS')))
+#    saveRDS(counts,paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS'))
 
 
 # Save workspace ------------------------------------------------------------
@@ -575,27 +577,28 @@ if (T) {
     t <- targets[chromosome==13 & str_detect(gene,'RB1')]$bin; targets[bin %in% min(t):max(t),gene:='RB1']
     targets[,label:=NA][gene %in% c('AR','ATM','BRCA2','PTEN','RB1','NTRK3','ERG','CDK12','TMPRSS2'),label:=gene]
     targets[,smooth_log2:=runmed(log2,k=21),by=chromosome]
-    ylims <- c(.4,2) #c(min(.5,min(2^bins$smooth_log2)),max(2,max(2^bins$smooth_log2)))
-    #if (ylims[1]<.25) ylims[1] <- .25
-    #if (ylims[2]>4) ylims[1] <- 4
-
+    ylims <- c(.4,2)
+    
+    
     if (snp_allele_ratio) { 
-        targets[snp=='other',allele_ratio:=NA]
-        #bins[allele_ratio>.95 | allele_ratio<.05,allele_ratio:=NA]
+        snp_table <- snp_table[type!='other'][allele_ratio_corrected2 < .99][allele_ratio_corrected2 > .01]
+        snp_table <- snp_table[DP > median(DP)/3][DP < median(DP)*3]
+        
+        targets[,allele_ratio:=as.double(NA)][snp_table$bin,allele_ratio:=snp_table$allele_ratio_corrected2]
         targets[,maf:=abs(allele_ratio-.5)+.5]
-        targets[!is.na(maf)][maf<.95,maf:=runmed(maf,9)]
-        # snp (grid) smooth-to-alleleratio plot
-        p$grid <- ggplot(targets[maf<.95]) + xlim(c(.2,1.8)) + ylim(c(.5,1)) + xlab('Corrected depth (smooth)') + ylab('Major allele ratio (smooth)') +
-            geom_point(data=targets[maf<.95,.(log2,maf)],aes(x=2^log2,y=maf),col='lightgrey') +
+        targets[!is.na(maf),maf:=runmed(maf,9)]
+        # snp (grid) smooth-to-allele-ratio plot
+        p$grid <- ggplot(targets) + xlim(c(.2,1.8)) + ylim(c(.5,1)) + xlab('Corrected depth (smooth)') + ylab('Major allele ratio (smooth)') +
+            geom_point(data=targets[,.(log2,maf)],aes(x=2^log2,y=maf),col='lightgrey') +
             geom_point(aes(x=2^log2,y=maf),fill='#60606090',col='#20202090',shape=21) +
-            geom_point(data=targets[maf<.95 & label!=''],aes(x=2^log2,y=maf,fill=label),shape=21,col='#00000050',size=1) +
+            geom_point(data=targets[label!=''],aes(x=2^log2,y=maf,fill=label),shape=21,col='#00000050',size=1) +
             facet_wrap(facets = vars(factor(chromosome,levels=unique(chromosome),ordered=T)),ncol = 8) +
             theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8))
-        # snp (all) smooth-to-alleleratio plot
+        # snp (all) smooth-to-allele-ratio plot
         temp <- targets[!is.na(label),median(log2),by=label]
-        p$nogrid <- ggplot(targets[maf<.95]) + xlim(c(0,2.5)) + ylim(c(.5,1)) + xlab('Corrected depth (smooth)') + ylab('Major allele ratio (smooth)') +
-            geom_point(data=targets[maf<.95,.(log2,maf)],aes(x=2^log2,y=maf),fill='#60606090',col='#20202090',shape=21) +
-            geom_point(data=targets[label!=''&maf<.95],aes(x=2^log2,y=abs(allele_ratio-.5)+.5,fill=label),shape=21,col='#00000050',size=1) +
+        p$nogrid <- ggplot(targets) + xlim(c(0,2.5)) + ylim(c(.5,1)) + xlab('Corrected depth (smooth)') + ylab('Major allele ratio (smooth)') +
+            geom_point(data=targets[,.(log2,maf)],aes(x=2^log2,y=maf),fill='#60606090',col='#20202090',shape=21) +
+            geom_point(data=targets[label!=''],aes(x=2^log2,y=abs(allele_ratio-.5)+.5,fill=label),shape=21,col='#00000050',size=1) +
             geom_point(data=temp,mapping=aes(x=2^V1,y=1,fill=label),size=2,shape=25,show.legend=F)
     }
     # chroms object by genomic pos
@@ -673,7 +676,8 @@ if (T) {
     # logR by gc
     p$gc_log2 <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth') +
         geom_point(data=targets,mapping = aes(x=gc,y=2^log2),fill='#60606040',col='#20202040',shape=21,size=1) + # fill='#60606040'
-        geom_smooth(data=targets[!is.na(label)],mapping = aes(x=gc,y=2^log2,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
+        geom_smooth(data=targets[!is.na(label)],
+                    mapping = aes(x=gc,y=2^log2,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
         scale_fill_hue() + scale_y_log10(limits=ylims) 
     m <- targets[is_target==T,median(count)]
     if (snp_allele_ratio) {
@@ -699,7 +703,7 @@ if (T) {
     p$order_rawdepth <- ggplot(targets) + xlab('Order of genomic position') + ylab('Read count') +
         geom_point(data=targets[is_target==T],mapping = aes(x=bin,y=count),fill='#60606050',col='#20202050',size=1,shape=21) +
         geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=count,fill=label),shape=21,col='#00000050',size=1) +
-        scale_fill_hue() + scale_y_log10(limits=c(5e2,5e4)) +
+        scale_fill_hue() + scale_y_log10(limits=c(5e2,5e3)) +
         scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
                            expand = c(.01,.01),labels = chroms$chromosome) +
         theme(panel.grid.major.x = element_blank(),
@@ -710,8 +714,9 @@ if (T) {
     # depth by GC 
     p$gc_rawdepth <- ggplot(targets) + xlab('Target GC content') + ylab('Read count') +
         geom_point(data=targets[is_target==T],mapping = aes(x=gc,y=count),fill='#60606040',col='#20202040',shape=21,size=1) + # 
-        geom_smooth(data=targets[!is.na(label) & !is.na(log2)],mapping = aes(x=gc,y=count,col=label),size=.5,se=F,show.legend = F,method = 'rlm') +
-        scale_fill_hue() + scale_y_log10(limits=c(5e2,5e4))
+        geom_smooth(data=targets[!is.na(label) & !is.na(log2)],
+                    mapping = aes(x=gc,y=count,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
+        scale_fill_hue() + scale_y_log10(limits=c(5e2,5e3))
     
     
     for (i in 1:length(p)) p[[i]] <- p[[i]] + guides(fill=guide_legend(override.aes=list(shape=21,size=3)))
@@ -719,7 +724,7 @@ if (T) {
     stats <- paste0('Coverage: ',
                     paste(round(quantile(targets[is_backbone==T]$count,c(.01,.99))),collapse = '-'),
                     ', Noise: ',
-                    noise(targets$log2),'% / ', noise(background$log2),'%'
+                    noise(targets[is_target==T]$log2),'% / ', noise(targets[is_target==F]$log2),'%'
     )
     
     pa <- plot_annotation(
@@ -767,10 +772,5 @@ if (T) {
 dev.off()
 
 
-# Save image object ------------------------------------------------------------
-
-p$bins <- bins
-p$segments <- segments
-saveRDS(p,paste0(opt$output_dir,'/',clinbarcode,'.plots.RDS'))
 
 
