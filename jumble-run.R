@@ -313,6 +313,7 @@ if (!is.null(input)) {
 
 
 
+
 # LogR and genotype correction ------------------------------------------------------------
 
 
@@ -355,6 +356,16 @@ targets[,rawLR_short:=rawLR_short-reference$median_short]
 # 
 # background[,rawLR:=rawLR-reference$background_median]
 # background[,rawLR_short:=rawLR_short-reference$background_median_short]
+
+
+# PCA ------------------------------------------------------------
+
+tpca <- prcomp((reference$targets_ref[,-1]),center = F,scale. = F)
+tpca_short <- prcomp((targets_ref_short[,-1]),center = F,scale. = F)
+bgpca <- prcomp((background_ref[,-1]),center = F,scale. = F)
+bgpca_short <- prcomp((background_ref_short[,-1]),center = F,scale. = F)
+
+
 
 
 # Reference data correction ------------------------------------------------------------
@@ -407,21 +418,21 @@ targets[,log2_short:=rawLR_short]
 temp <- cbind(data.table(
     lr=targets[is_target==T & chromosome!='Y']$rawLR),
     gc=targets[is_target==T & chromosome!='Y']$gc,
-    reference$targets_ref)
+    tpca)
 targets[is_target==T & chromosome!='Y',log2:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
 
 # short
 temp <- cbind(data.table(
     lr=targets[is_target==T & chromosome!='Y']$rawLR_short),
     gc=targets[is_target==T & chromosome!='Y']$gc,
-    reference$targets_ref_short)
+    tpca_short)
 targets[is_target==T & chromosome!='Y',log2_short:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
 
 # standard bg
 temp <- cbind(data.table(
     lr=targets[is_target==F & chromosome!='Y']$rawLR),
     gc=targets[is_target==F & chromosome!='Y']$gc,
-    reference$background_ref)
+    bgpca)
 targets[is_target==F & chromosome!='Y',log2:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
 
 
@@ -429,7 +440,7 @@ targets[is_target==F & chromosome!='Y',log2:=jcorrect(temp,targets[is_target==F 
 temp <- cbind(data.table(
     lr=targets[is_target==F & chromosome!='Y']$rawLR_short),
     gc=targets[is_target==F & chromosome!='Y']$gc,
-    reference$background_ref_short)
+    bgpca_short)
 targets[is_target==F & chromosome!='Y',log2_short:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
 
 
@@ -540,7 +551,7 @@ if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS')))
 
 
 # Save workspace ------------------------------------------------------------
-save.image(paste0(opt$output_dir,'/',clinbarcode,'.jumble_workspace.RDS'))
+save.image(paste0(opt$output_dir,'/',clinbarcode,'.jumble_workspace.Rdata'))
 
 
 # bins$bins <- 'Target'
