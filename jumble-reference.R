@@ -543,6 +543,7 @@ bgmat_short <- dcast(data = targets[chromosome!='Y' & !is_target,.(bin,sample,ra
 
 # PCA ------------------------------------------------------------
 
+# not retained anymore, done in _run instead
 tpca <- prcomp((tmat[,-1]),center = F,scale. = F)
 tpca_short <- prcomp((tmat_short[,-1]),center = F,scale. = F)
 bgpca <- prcomp((bgmat[,-1]),center = F,scale. = F)
@@ -554,17 +555,16 @@ reference <- allcounts[[1]][c("target_bed_file","chromlength","ranges")]
 reference$date <- date()
 reference$samples <- unique(targets$sample)
 reference$targets <- target_template
-#reference$background <- background_template
 reference$keep <- keep_targets$bin
-#reference$keep_background <- keep_background$background
-reference$targets_ref <- tpca$x
-reference$targets_ref_short <- tpca_short$x
-reference$background_ref <- bgpca$x
-reference$background_ref_short <- bgpca_short$x
+
+reference$targets_ref <- tmat #tpca$x
+reference$targets_ref_short <- tmat_short #tpca_short$x
+reference$background_ref <- bgmat #bgpca$x
+reference$background_ref_short <- bgmat_short #bgpca_short$x
+
 reference$median <- targets[sample==sample[1]]$refmedian
 reference$median_short <- targets[sample==sample[1]]$refmedian_short
-#reference$background_median <- background[sample==sample[1]]$refmedian
-#reference$background_median_short <- background[sample==sample[1]]$refmedian_short
+
 reference$snp_rlm_model <- snp_rlm_model
 reference$snp_coeff_table <- snp_coeff_table
 
