@@ -161,7 +161,12 @@ snp_allele_ratio <- FALSE
 input <- opt$snp_vcf
 if (!is.null(input)) {
     snp_allele_ratio <- TRUE
-    if (!str_detect(input,'.[vV][cC][fF]$') & !str_detect(input,'.[vV][cC][fF].[gG][zZ]$')) stop("SNP vcf file appears incorrect")
+    
+    if (is.null(reference$snp_rlm_model)) 
+        warning('SNP data in sample but not in reference object. Raw SNP allele ratio will be plotted but not used.')
+    
+    if (!str_detect(input,'.[vV][cC][fF]$') & !str_detect(input,'.[vV][cC][fF].[gG][zZ]$')) 
+        stop("SNP vcf file appears incorrect")
     
     vcf=readVcf(input)
     
@@ -230,91 +235,99 @@ if (!is.null(input)) {
     snp_table[queryHits(overlap),bin:=subjectHits(overlap)]
     snp_table <- snp_table[bin %in% targets[is_target==T]$bin]
     
-    # Compute GC content for SNPs
-    gc_ranges <- makeGRangesFromDataFrame(unique(snp_table[,.(chromosome,start,end)]))
-    seqlevelsStyle(gc_ranges) <- "UCSC"
-    gc_ranges <- gc_ranges[width(gc_ranges)==1]
-    start(gc_ranges) <- start(gc_ranges)-1
-    end(gc_ranges) <- end(gc_ranges)+1
-    gc_ranges$gc3 <- gcContentCalc(gc_ranges, organism=Hsapiens)
-    start(gc_ranges) <- start(gc_ranges)-1
-    end(gc_ranges) <- end(gc_ranges)+1
-    gc_ranges$gc5 <- gcContentCalc(gc_ranges , organism=Hsapiens)
-    start(gc_ranges) <- start(gc_ranges)-48
-    end(gc_ranges) <- end(gc_ranges)+48
-    gc_ranges$gc101 <- gcContentCalc(gc_ranges , organism=Hsapiens)
-    start(gc_ranges) <- start(gc_ranges)+50
-    end(gc_ranges) <- end(gc_ranges)-50
-    seqlevelsStyle(gc_ranges) <- "NCBI"
-    gc_table <- as.data.table(gc_ranges)[,-c('strand','width')][,chromosome:=seqnames][,-'seqnames']
-    snp_table <- merge(snp_table,gc_table,all=T,by=c('chromosome','start','end'))
     
+
+    # SNP correction ----------------------------------------------------------
     
-    # Compute features for ref allele bias
-    snp_table[,hom_alt:=F][chromosome %in% 1:22 & allele_ratio > .95,hom_alt:=T]
-    
-    t <- c('C>T','G>A')
-    snp_table[,peak_ld:=peakx(log2(DP[type %in% t & hom_alt==T & chromosome %in% 1:22])),by=c('sample')]
-    
-    snp_table[,homC_T:=peakx(log2(DP[hom_alt==T & type=='C>T']))-peak_ld,by=c('sample')]
-    snp_table[,homT_C:=peakx(log2(DP[hom_alt==T & type=='T>C']))-peak_ld,by=c('sample')]
-    snp_table[,homA_G:=peakx(log2(DP[hom_alt==T & type=='A>G']))-peak_ld,by=c('sample')]
-    snp_table[,homG_A:=peakx(log2(DP[hom_alt==T & type=='G>A']))-peak_ld,by=c('sample')]
-    
-    # Compute general model based bias estimates
-    snp_rlm_model <- reference$snp_rlm_model
-    snp_table[,bias_estimate:=.04] # default 
-    for (ref in unique(snp_table$ref_allele)) 
-        for (alt in unique(snp_table$alt_allele)) 
-            if(ref!=alt & ref != 'other') {
-                cat(ref,'>',alt,'\n')
-                thismodel <- snp_rlm_model[[paste0(ref,'_',alt)]]
-                
-                ix <- snp_table$ref_allele==ref & snp_table$alt_allele==alt
-                cat(sum(ix),'total \n')
-                predicted_bias <- predict(thismodel,snp_table[ix])
-                cat(length(predicted_bias),'predicted \n')
-                hist(predicted_bias)
-                snp_table[ix,bias_estimate:=predicted_bias]
-            }
-    
-    snp_table[,AD_corrected:=AD*(2^bias_estimate)]
-    snp_table[,DP_corrected:=RD+AD_corrected]
-    snp_table[,allele_ratio_corrected:=AD_corrected/DP_corrected]
-    
-    # Compute residual bias estimates where available
-    snp_coeff_table <- reference$snp_coeff_table
-    ix <- match(snp_table$snp,snp_coeff_table$snp)
-    snp_table[,residual_bias_estimate:=0]
-    snp_table[,residual_bias_estimate:=
-                  snp_coeff_table$constant[ix]+
-                  snp_coeff_table$logDP[ix]*logDP+
-                  snp_coeff_table$peak_ld[ix]*peak_ld+
-                  snp_coeff_table$homC_T[ix]*homC_T+
-                  snp_coeff_table$homT_C[ix]*homT_C+
-                  snp_coeff_table$homA_G[ix]*homA_G+
-                  snp_coeff_table$homG_A[ix]*homG_A]
-    snp_table[is.na(residual_bias_estimate),residual_bias_estimate:=0]
-    
-    # Correct for residual bias
-    snp_table[,AD_corrected2:=AD_corrected*(2^residual_bias_estimate)]
-    snp_table[,DP_corrected2:=RD+AD_corrected2]
-    snp_table[,allele_ratio_corrected2:=AD_corrected2/DP_corrected2]
-    
-    # Compute the correction factor and cap it at 2/3 to 3/2. Note that only the model based, first correction factor is used for that.
-    snp_table[,correct_factor:=2^(bias_estimate+residual_bias_estimate)]
-    snp_table[correct_factor>1.5,correct_factor:=1.5]
-    snp_table[correct_factor<2/3,correct_factor:=2/3]
-    
-    # Compute the correction number
-    snp_table[,correct_number:=(correct_factor-1)*AD]
-    snp_table[,correct_number_check:=AD_corrected2-AD] # should be same
-    
-    # Add correction number to target table
-    snps_by_bin <- snp_table[,.N,by=bin]
-    targets[snps_by_bin$bin,snps:=snps_by_bin$N]
-    correction_by_bin <- snp_table[,max(correct_number),by=bin]
-    targets[correction_by_bin$bin,allele_count_correction:=correction_by_bin$V1]
+    if (!is.null(reference$snp_rlm_model)) {
+        
+        # Compute GC content for SNPs
+        gc_ranges <- makeGRangesFromDataFrame(unique(snp_table[,.(chromosome,start,end)]))
+        seqlevelsStyle(gc_ranges) <- "UCSC"
+        gc_ranges <- gc_ranges[width(gc_ranges)==1]
+        start(gc_ranges) <- start(gc_ranges)-1
+        end(gc_ranges) <- end(gc_ranges)+1
+        gc_ranges$gc3 <- gcContentCalc(gc_ranges, organism=Hsapiens)
+        start(gc_ranges) <- start(gc_ranges)-1
+        end(gc_ranges) <- end(gc_ranges)+1
+        gc_ranges$gc5 <- gcContentCalc(gc_ranges , organism=Hsapiens)
+        start(gc_ranges) <- start(gc_ranges)-48
+        end(gc_ranges) <- end(gc_ranges)+48
+        gc_ranges$gc101 <- gcContentCalc(gc_ranges , organism=Hsapiens)
+        start(gc_ranges) <- start(gc_ranges)+50
+        end(gc_ranges) <- end(gc_ranges)-50
+        seqlevelsStyle(gc_ranges) <- "NCBI"
+        gc_table <- as.data.table(gc_ranges)[,-c('strand','width')][,chromosome:=seqnames][,-'seqnames']
+        snp_table <- merge(snp_table,gc_table,all=T,by=c('chromosome','start','end'))
+        
+        
+        # Compute features for ref allele bias
+        snp_table[,hom_alt:=F][chromosome %in% 1:22 & allele_ratio > .95,hom_alt:=T]
+        
+        t <- c('C>T','G>A')
+        snp_table[,peak_ld:=peakx(log2(DP[type %in% t & hom_alt==T & chromosome %in% 1:22])),by=c('sample')]
+        
+        snp_table[,homC_T:=peakx(log2(DP[hom_alt==T & type=='C>T']))-peak_ld,by=c('sample')]
+        snp_table[,homT_C:=peakx(log2(DP[hom_alt==T & type=='T>C']))-peak_ld,by=c('sample')]
+        snp_table[,homA_G:=peakx(log2(DP[hom_alt==T & type=='A>G']))-peak_ld,by=c('sample')]
+        snp_table[,homG_A:=peakx(log2(DP[hom_alt==T & type=='G>A']))-peak_ld,by=c('sample')]
+        
+        # Compute general model based bias estimates
+        snp_rlm_model <- reference$snp_rlm_model
+        snp_table[,bias_estimate:=.04] # default 
+        for (ref in unique(snp_table$ref_allele)) 
+            for (alt in unique(snp_table$alt_allele)) 
+                if(ref!=alt & ref != 'other') {
+                    cat(ref,'>',alt,'\n')
+                    thismodel <- snp_rlm_model[[paste0(ref,'_',alt)]]
+                    
+                    ix <- snp_table$ref_allele==ref & snp_table$alt_allele==alt
+                    cat(sum(ix),'total \n')
+                    predicted_bias <- predict(thismodel,snp_table[ix])
+                    cat(length(predicted_bias),'predicted \n')
+                    #hist(predicted_bias)
+                    snp_table[ix,bias_estimate:=predicted_bias]
+                }
+        
+        snp_table[,AD_corrected:=AD*(2^bias_estimate)]
+        snp_table[,DP_corrected:=RD+AD_corrected]
+        snp_table[,allele_ratio_corrected:=AD_corrected/DP_corrected]
+        
+        # Compute residual bias estimates where available
+        snp_coeff_table <- reference$snp_coeff_table
+        ix <- match(snp_table$snp,snp_coeff_table$snp)
+        snp_table[,residual_bias_estimate:=0]
+        snp_table[,residual_bias_estimate:=
+                      snp_coeff_table$constant[ix]+
+                      snp_coeff_table$logDP[ix]*logDP+
+                      snp_coeff_table$peak_ld[ix]*peak_ld+
+                      snp_coeff_table$homC_T[ix]*homC_T+
+                      snp_coeff_table$homT_C[ix]*homT_C+
+                      snp_coeff_table$homA_G[ix]*homA_G+
+                      snp_coeff_table$homG_A[ix]*homG_A]
+        snp_table[is.na(residual_bias_estimate),residual_bias_estimate:=0]
+        
+        # Correct for residual bias
+        snp_table[,AD_corrected2:=AD_corrected*(2^residual_bias_estimate)]
+        snp_table[,DP_corrected2:=RD+AD_corrected2]
+        snp_table[,allele_ratio_corrected2:=AD_corrected2/DP_corrected2]
+        
+        # Compute the correction factor and cap it at 2/3 to 3/2. Note that only the model based, first correction factor is used for that.
+        snp_table[,correct_factor:=2^(bias_estimate+residual_bias_estimate)]
+        snp_table[correct_factor>1.5,correct_factor:=1.5]
+        snp_table[correct_factor<2/3,correct_factor:=2/3]
+        
+        # Compute the correction number
+        snp_table[,correct_number:=(correct_factor-1)*AD]
+        snp_table[,correct_number_check:=AD_corrected2-AD] # should be same
+        
+        # Add correction number to target table
+        snps_by_bin <- snp_table[,.N,by=bin]
+        targets[snps_by_bin$bin,snps:=snps_by_bin$N]
+        correction_by_bin <- snp_table[,max(correct_number),by=bin]
+        targets[correction_by_bin$bin,allele_count_correction:=correction_by_bin$V1]
+        
+    }
     
 }
 
@@ -576,15 +589,21 @@ if (T) {
     p <- NULL
     t <- targets[chromosome==13 & str_detect(gene,'RB1')]$bin; targets[bin %in% min(t):max(t),gene:='RB1']
     targets[,label:=NA][gene %in% c('AR','ATM','BRCA2','PTEN','RB1','NTRK3','ERG','CDK12','TMPRSS2'),label:=gene]
-    targets[,smooth_log2:=runmed(log2,k=21),by=chromosome]
+    targets[,smooth_log2:=runmed(log2,k=51),by=chromosome]
     ylims <- c(.4,2)
     
     
     if (snp_allele_ratio) { 
-        snp_table <- snp_table[type!='other'][allele_ratio_corrected2 < .99][allele_ratio_corrected2 > .01]
+        
+        # defaults to using raw allele ratio:
+        snp_table[,allele_ratio_use:=allele_ratio] 
+        # but if there is a corrected allele ratio, use it:
+        if (!is.null(snp_table$allele_ratio_corrected2)) snp_table[,allele_ratio_use:=allele_ratio_corrected2]
+        
+        snp_table <- snp_table[type!='other'][allele_ratio_use < .99][allele_ratio_use > .01]
         snp_table <- snp_table[DP > median(DP)/3][DP < median(DP)*3]
         
-        targets[,allele_ratio:=as.double(NA)][snp_table$bin,allele_ratio:=snp_table$allele_ratio_corrected2]
+        targets[,allele_ratio:=as.double(NA)][snp_table$bin,allele_ratio:=snp_table$allele_ratio_use]
         targets[,maf:=abs(allele_ratio-.5)+.5]
         targets[!is.na(maf),maf:=runmed(maf,9)]
         # snp (grid) smooth-to-allele-ratio plot
