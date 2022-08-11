@@ -395,12 +395,6 @@ jcorrect <- function(temp,train_ix=NULL) {
                      family="symmetric", control = loess.control(surface = "direct"))
     temp[,lr:=lr-predict(loess_temp,temp)]
     
-    if (all(!is.na(temp$gc))) {
-    loess_temp=loess(lr ~ gc, data = temp,
-                     subset = train_ix,
-                     family="symmetric", control = loess.control(surface = "direct"))
-    temp[,lr:=lr-predict(loess_temp,temp)]
-    }
     
     runs <- 0
     best_lr <- temp$lr
@@ -413,7 +407,7 @@ jcorrect <- function(temp,train_ix=NULL) {
         temp[,lr:=lr-predict(loess_temp,temp)]
 
         mapd <- mapd(temp$lr)
-        cat(round(mapd,4),'>>')
+        #cat(round(mapd,4),'>>')
         if (mapd < best_mapd) {
             best_lr <- temp$lr
             best_mapd <- mapd
@@ -421,6 +415,14 @@ jcorrect <- function(temp,train_ix=NULL) {
         }
 
     }
+    
+    if (all(!is.na(temp$gc))) {
+        loess_temp=loess(lr ~ gc, data = temp,
+                         subset = train_ix,
+                         family="symmetric", control = loess.control(surface = "direct"))
+        temp[,lr:=lr-predict(loess_temp,temp)]
+    }
+    
     #cat('ran ',runs,'/',ncol(temp)-2, ' times\n')
     return(temp$lr)
 }
