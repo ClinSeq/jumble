@@ -49,7 +49,8 @@ for (i in 1:length(files)) {
     if (is.null(counts$input_bam_file))
         counts$input_bam_file <- files[i]
     ntargets[i] <- length(counts$count)
-    bed_files[i] <- str_remove(string = counts$target_bed_file,pattern = '^.*/')
+    if (!is.null(counts$target_bed_file)) 
+        bed_files[i] <- str_remove(string = counts$target_bed_file,pattern = '^.*/') else bed_files[i] <- ''
     allcounts[[i]] <- counts
 }
 

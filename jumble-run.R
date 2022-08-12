@@ -577,7 +577,7 @@ save.image(paste0(opt$output_dir,'/',clinbarcode,'.jumble_workspace.Rdata'))
 
 
 
-# Jumble frankenplot ------------------------------------------------------------
+# Plot ------------------------------------------------------------
 
 noise <- function(data) {
     m <- mapd(data)

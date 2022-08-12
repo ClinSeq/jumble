@@ -14,7 +14,7 @@ option_list <- list(
     make_option(c("-t", "--target_bed_file"), action = "store", type = "character",default = NULL, 
                 help = "target bed file, unless WGS"),
     make_option(c("-b", "--input_bam_file"), action = "store", type = "character",default = NULL,
-                help = "input BAM file, else all in local directory"),
+                help = "input BAM file, else all in current directory"),
     make_option(c("-s", "--wgs_bin_size"), action = "store", type = "integer",default = 1000, 
                 help = "bin size (WGS only)"),
     make_option(c("-c", "--cores"), action = "store", type = "integer",default = 1, 
