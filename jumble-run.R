@@ -475,9 +475,12 @@ getsegs <- function(targets, logratio) {
     segments[,start_pos:=targets$start[ceiling(start)]]
     segments[,end_pos:=targets$end[floor(end)]]
     segments[,genes:='']
+    
     for (i in 1:nrow(segments)) {
         ix <- ceiling(segments[i]$start):floor(segments[i]$end)
-        genes <- unique(targets$gene[ix])
+        genes <- paste0(targets$gene[ix],collapse = ',')
+        genes <- unique(strsplit(genes,',')[[1]])
+        genes <- str_remove_all(genes,'[<>]')
         genes <- genes[!genes %in% c('','Background')]
         if (length(genes)>0) segments[i]$genes <- paste(genes,collapse = ', ')
     }
@@ -497,13 +500,16 @@ segments <- getsegs(targets, targets$log2)
 targets[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 segments[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 
-# Gene/segment tables ------------------------------------------------------------
-
+# Gene+segment table ------------------------------------------------------------
 
 
 segments_temp <- segments[,.(segment=paste(1:.N),type='segment',chromosome,start=start_pos,end=end_pos,
                          length=end_pos-start_pos,
                          bins=nbrOfLoci,genes,mean)]
+
+# which segment, by gene
+#genes <- sort(unique(strsplit(paste0(unique(targets[!gene %in% c('','Background')]$gene),collapse = ','),',')[[1]]))
+
 genes <- targets[is_target==T,.(segment='',type='gene',chromosome,start,end,length=NA,bins=0,
                     genes=gene,log2,
                     mean=0)]
@@ -525,7 +531,7 @@ genes[,log2:=NULL]
 
 
 suppressWarnings(
-    segments_genes <- rbind(segments_temp,unique(genes[bins>=5]))[order(as.numeric(chromosome),start)]
+    segments_genes <- rbind(segments_temp,unique(genes))[order(as.numeric(chromosome),start)]
 )
 
 
@@ -536,11 +542,12 @@ suppressWarnings(
 
 clinbarcode <- str_remove(name, "_nodups.bam")
 
+# The combined segments and genes table (skipped for now)
+#fwrite(x = segments_genes,file = paste0(opt$output_dir,'/',clinbarcode,'.segments.csv'))
 
-fwrite(x = segments_genes,file = paste0(opt$output_dir,'/',clinbarcode,'.segments.csv'))
-#fwrite(x = bins,file = paste0(opt$output_dir,'/',clinbarcode,'.bins.csv'))
+# Jumble targets and background
 fwrite(x = targets,file = paste0(opt$output_dir,'/',clinbarcode,'.targets.csv'))
-# fwrite(x = background,file = paste0(opt$output_dir,'/',name,'.background.csv'))
+
 
 
 # for compatibility with CNVkit.
@@ -563,8 +570,8 @@ fwrite(x = seg,file = paste0(opt$output_dir,'/',clinbarcode,'_dnacopy.seg'),sep 
 
 # Count file output ------------------------------------------------------------
 # (not overwrite)
-#if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS')))
-#    saveRDS(counts,paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS'))
+if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.*counts.RDS')))
+   saveRDS(counts,paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS'))
 
 
 # Save workspace ------------------------------------------------------------
@@ -589,8 +596,6 @@ if (T) {
     
     
     p <- NULL
-    t <- targets[chromosome==13 & str_detect(gene,'RB1')]$bin; targets[bin %in% min(t):max(t),gene:='RB1']
-    targets[,label:=NA][gene %in% c('AR','ATM','BRCA2','PTEN','RB1','NTRK3','ERG','CDK12','TMPRSS2'),label:=gene]
     targets[,smooth_log2:=runmed(log2,k=51),by=chromosome]
     ylims <- c(.4,2)
     

@@ -95,17 +95,24 @@ seqlevelsStyle(ucsc_ranges) <- "UCSC"
 
 d <- detailRanges(ucsc_ranges, orgdb=org.Hs.eg.db,
                   txdb=TxDb.Hsapiens.UCSC.hg19.knownGene)
-targets[,gene:='']
-targets[is_target==T]$gene <- str_remove(string = d$overlap,pattern = ':.*')
 
-rb1 <- which(targets$gene=='RB1')
-targets[min(rb1):max(rb1),gene:='RB1']
+# targets can overlap multiple genes:
+t <- strsplit(d$overlap,',')
+t <- lapply(t,function(t) str_remove(t,pattern = ':.*'))
+t <- lapply(t,function(t) paste0('<',t,'>'))
+t <- lapply(t,function(t) paste0(t,collapse = ','))
+
+targets[,gene:=''][targets$is_target==T,gene:=unlist(t)][gene=='<>',gene:='']
+targets[targets$is_target==F,gene:='Background']
 
 # label some genes
-targets[,label:='']
-targets[gene %in% c('AR','ATM','BRCA2','PTEN','RB1'),label:=gene]
+#t <- targets[chromosome==13 & str_detect(gene,'RB1')]$bin; targets[bin %in% min(t):max(t),gene:='RB1']
+label_genes <- c('AR','ATM','BRCA2','PTEN','RB1','NTRK3','ERG','CDK12','TMPRSS2')
+targets[,label:=as.character(NA)]
+for (g in label_genes) targets[str_detect(gene,paste0('<',g,'>')),label:=g]
 
-
+# remove the <>
+targets[,gene:=str_remove_all(gene,'[<>]')]
 
 # GC content ------------------------------------------------------------
 
