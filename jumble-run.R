@@ -748,7 +748,7 @@ if (T) {
     for (i in 1:length(p)) p[[i]] <- p[[i]] + guides(fill=guide_legend(override.aes=list(shape=21,size=3)))
     
     stats <- paste0('Coverage: ',
-                    paste(round(quantile(targets[is_backbone==T]$count,c(.01,.99))),collapse = '-'),
+                    paste(round(quantile(targets[is_backbone==T]$count,c(.025,.975))),collapse = '-'),
                     ', Noise: ',
                     noise(targets[is_target==T]$log2),'% / ', noise(targets[is_target==F]$log2),'%'
     )

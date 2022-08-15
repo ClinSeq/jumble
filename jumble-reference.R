@@ -107,7 +107,7 @@ targets[targets$is_target==F,gene:='Background']
 
 # label some genes
 #t <- targets[chromosome==13 & str_detect(gene,'RB1')]$bin; targets[bin %in% min(t):max(t),gene:='RB1']
-label_genes <- c('AR','ATM','BRCA2','PTEN','RB1','NTRK3','ERG','CDK12','TMPRSS2')
+label_genes <- c('AR','ATM','BRCA2','PTEN','RB1','ERG','CDK12','TMPRSS2')
 targets[,label:=as.character(NA)]
 for (g in label_genes) targets[str_detect(gene,paste0('<',g,'>')),label:=g]
 
