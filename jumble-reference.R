@@ -46,6 +46,10 @@ ntargets <- 0
 bed_files <- ''
 for (i in 1:length(files)) {
     counts <- readRDS(files[i])
+    # counts$ranges <- counts$ranges[-removals$V1]
+    # counts$count <- counts$count[-removals$V1]
+    # counts$count_short <- counts$count_short[-removals$V1]
+    # saveRDS(counts,file = files[i])
     if (is.null(counts$input_bam_file))
         counts$input_bam_file <- files[i]
     ntargets[i] <- length(counts$count)
@@ -58,7 +62,7 @@ if (length(table(ntargets))>1) stop('Number of bins differs between samples.')
 if (length(table(bed_files))>1) stop('BED file differs between samples.')
 
 
-
+#removals <- targets[,max(bin),by='chromosome']
 
 # Make tables ------------------------------------------------------------
 
@@ -86,8 +90,8 @@ targets[width!=min(width),is_target:=F]
 
 
 
-# Gene annotation ------------------------------------------------------------
 
+# Gene annotation ------------------------------------------------------------
 
 
 ucsc_ranges <- counts$ranges[targets$is_target==T]
@@ -119,19 +123,24 @@ targets[,gene:=str_remove_all(gene,'[<>]')]
 targets[,gc:=as.double(NA)]
 targets[is_target==T]$gc <- gcContentCalc(ucsc_ranges , organism=Hsapiens)
 
-
-
 # Backbone definition ------------------------------------------------------------
 
 set.seed(25) # <------------------ To be reproducible.
 max_backbone_in_gene <- 20
 
-targets[,is_backbone:=chromosome %in% 1:22 & gene=='']
-for (g in unique(targets$gene)) {
-    ix=targets[gene==g & chromosome %in% as.character(1:22),.I]
-    n <- length(ix)
-    if (n>max_backbone_in_gene) ix=ix[order(rnorm(n))][1:max_backbone_in_gene]
-    targets[ix,is_backbone:=T]
+wgs <- F
+if (is.null(allcounts[[1]]$target_bed_file)) wgs <- T
+
+if (wgs) targets[,is_backbone:=chromosome %in% 1:22]
+
+if (!wgs) {
+    targets[,is_backbone:=chromosome %in% 1:22 & gene=='']
+    for (g in unique(targets$gene)) {
+        ix=targets[gene==g & chromosome %in% as.character(1:22),.I]
+        n <- length(ix)
+        if (n>max_backbone_in_gene) ix=ix[order(rnorm(n))][1:max_backbone_in_gene]
+        targets[ix,is_backbone:=T]
+    }
 }
 #background[,is_backbone:=chromosome %in% 1:22]
 
@@ -498,11 +507,20 @@ rm(targetlist)
 
 # Drop some bins ------------------------------------------------------------
 
+# Low coverage threshold
 threshold <- median(targets$count) * 0.05
-keep_targets <- targets[,quantile(count,.90),by=bin][V1 > threshold]
+keep_targets <- targets[,quantile(count,.50),by=bin][V1 > threshold]
 targets <- targets[bin %in% keep_targets$bin]
-#keep_background <- background[,quantile(count,.75),by=background][V1 > 100]
-#background <- background[background %in% keep_background$background]
+
+# High coverage threshold
+threshold <- median(targets$count) / 0.05
+keep_targets <- targets[,quantile(count,.50),by=bin][V1 < threshold]
+targets <- targets[bin %in% keep_targets$bin]
+
+# Variance threshold
+# threshold <- quantile(targets[,var(count),by=bin]$V1,.99)
+# keep_targets <- targets[,var(count),by=bin][V1 < threshold]
+# targets <- targets[bin %in% keep_targets$bin]
 
 
 # SNP and Median correct ------------------------------------------------------------
@@ -529,49 +547,52 @@ targets[,rawLR_short:=rawLR_short-median(rawLR_short[is_backbone]),by=c('sample'
 # X-Y chromosome correct ------------------------------------------------------------
 
 # Double X values where their median implies male
-targets[,xmedian:=median(rawLR[gene=='' & chromosome=='X']),by=sample]
-targets[chromosome=='X' & 2^xmedian< .75,rawLR:=rawLR+1]
-targets[chromosome=='X' & 2^xmedian< .75,rawLR_short:=rawLR_short+1]
-
-#background[,xmedian:=median(rawLR[chromosome=='X']),by=sample]
-#background[chromosome=='X' & 2^xmedian< .75,rawLR:=rawLR+1]
-#background[chromosome=='X' & 2^xmedian< .75,rawLR_short:=rawLR_short+1]
-
+targets[,xmedian:=median(rawLR[chromosome=='X']),by=sample]
+targets[,male:=2^xmedian < .75] # assign gender
+if (length(unique(targets[male==T]$sample))>0) { # if at least 1 male
+    targets[chromosome=='X' & male==T,rawLR:=rawLR+1]
+    targets[chromosome=='X' & male==T,rawLR_short:=rawLR_short+1]
+}
 
 # Double Y values where their median implies male
-targets[,ymedian:=median(rawLR[chromosome=='Y']),by=sample][chromosome=='Y' & 2^ymedian > .25,rawLR:=rawLR+1]
-targets[,ymedian:=median(rawLR[chromosome=='Y']),by=sample][chromosome=='Y' & 2^ymedian > .25,rawLR_short:=rawLR_short+1]
-#background[,ymedian:=median(rawLR[chromosome=='Y']),by=sample][chromosome=='Y' & 2^ymedian> .25,rawLR:=rawLR+1]
-#background[,ymedian:=median(rawLR[chromosome=='Y']),by=sample][chromosome=='Y' & 2^ymedian> .25,rawLR_short:=rawLR_short+1]
+targets[,ymedian:=median(rawLR[chromosome=='Y']),by=sample] # median by sample
+targets[,male:=2^ymedian > .25] # assign gender based on Y
+
+if (length(unique(targets[male==T]$sample))>0) { # if at least 1 male
+    targets[male==T & chromosome=='Y',rawLR:=rawLR+1]
+    targets[male==T & chromosome=='Y',rawLR_short:=rawLR_short+1]
+}
 
 # Y is NA where median implies female
-targets[chromosome=='Y' & 2^ymedian < .1,rawLR:=NA]
-targets[chromosome=='Y' & 2^ymedian < .1,rawLR_short:=NA]
+targets[chromosome=='Y' & male==F,rawLR:=NA]
+targets[chromosome=='Y' & male==F,rawLR_short:=NA]
 
 
 # Reference set median correct ------------------------------------------------------------
 targets[,refmedian:=median(rawLR,na.rm=T),by=bin][,rawLR:=rawLR-refmedian]
 targets[,refmedian_short:=median(rawLR_short,na.rm=T),by=bin][,rawLR_short:=rawLR_short-refmedian_short]
-#background[,refmedian:=median(rawLR,na.rm=T),by=background][,rawLR:=rawLR-refmedian]
-#background[,refmedian_short:=median(rawLR_short,na.rm=T),by=background][,rawLR_short:=rawLR_short-refmedian_short]
+
 
 
 # Matrix form ------------------------------------------------------------
 # excluding Y, and separate for target and nontarget
 tmat <- dcast(data = targets[chromosome!='Y' & is_target,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
 tmat_short <- dcast(data = targets[chromosome!='Y' & is_target,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
+
+if (!wgs) {
 bgmat <- dcast(data = targets[chromosome!='Y' & !is_target,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
 bgmat_short <- dcast(data = targets[chromosome!='Y' & !is_target,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
-
+}
 
 # PCA ------------------------------------------------------------
 
 # not retained anymore, done in _run instead
 tpca <- prcomp((tmat[,-1]),center = F,scale. = F)
 tpca_short <- prcomp((tmat_short[,-1]),center = F,scale. = F)
-bgpca <- prcomp((bgmat[,-1]),center = F,scale. = F)
-bgpca_short <- prcomp((bgmat_short[,-1]),center = F,scale. = F)
-
+if (!wgs) {
+    bgpca <- prcomp((bgmat[,-1]),center = F,scale. = F)
+    bgpca_short <- prcomp((bgmat_short[,-1]),center = F,scale. = F)
+}
 
 # Reference object ------------------------------------------------------------
 reference <- allcounts[[1]][c("target_bed_file","chromlength","ranges")]
@@ -582,8 +603,11 @@ reference$keep <- keep_targets$bin
 
 reference$targets_ref <- tmat #tpca$x
 reference$targets_ref_short <- tmat_short #tpca_short$x
-reference$background_ref <- bgmat #bgpca$x
-reference$background_ref_short <- bgmat_short #bgpca_short$x
+
+if (!wgs) {
+    reference$background_ref <- bgmat #bgpca$x
+    reference$background_ref_short <- bgmat_short #bgpca_short$x
+}
 
 reference$median <- targets[sample==sample[1]]$refmedian
 reference$median_short <- targets[sample==sample[1]]$refmedian_short

@@ -72,7 +72,7 @@ foreach(i=1:length(bamfiles)) %dopar% {
         bins <- NULL
         for (i in 1:length(chromlength)) {
             bins[[i]] <- data.table(chromosome=names(chromlength[i]),
-                                    start=seq(0,chromlength[i],binsize)+1)
+                                    start=seq(0,chromlength[i]-binsize*2,binsize)+1)
         }
         bins <- rbindlist(bins)
         bins[,end:=start+binsize-1]
