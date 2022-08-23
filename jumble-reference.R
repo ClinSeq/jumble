@@ -595,6 +595,7 @@ if (!wgs) {
 }
 
 # Reference object ------------------------------------------------------------
+if (wgs) allcounts[[1]]$target_bed_file <- 'wgs'
 reference <- allcounts[[1]][c("target_bed_file","chromlength","ranges")]
 reference$date <- date()
 reference$samples <- unique(targets$sample)
@@ -618,8 +619,11 @@ if (exists('snp_table')) {
 }
 
 # Save ------------------------------------------------------------
+
+name <- reference$target_bed_file
+if (is.null(name)) name <- 'jumble.WGS'
 saveRDS(reference,paste0(opt$output_folder,'/',
-                         str_remove(reference$target_bed_file,'.*/'),
+                         str_remove(name,'.*/'),
                          '.reference.RDS'))
 
 # Plot ------------------------------------------------------------
