@@ -313,7 +313,7 @@ if (!is.null(input)) {
 
  
 mapd <- function(data) {
-    return(median(abs(diff(data))))
+    return(median(abs(diff(data)),na.rm = T))
 } 
 
 
@@ -346,22 +346,34 @@ targets[,rawLR_short:=rawLR_short-reference$median_short]
 # background[,rawLR:=rawLR-reference$background_median]
 # background[,rawLR_short:=rawLR_short-reference$background_median_short]
 
+# Remove outliers 1 ------------------------------------------------------------
 
-# PCA ------------------------------------------------------------
+deviation <- function(vector) {
+    d <- abs(diff(vector))
+    dd <- c(1,d) * c(d,1)
+    return(dd)
+}
 
-tpca <- prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x
-tpca_short <- prcomp(reference$targets_ref_short[,-1],center = F,scale. = F)$x
+targets[,dev:=deviation(rawLR),by=chromosome]
+targets[dev>3,rawLR:=NA]
+targets$dev <- NULL
+
+
+# PCA v1 ------------------------------------------------------------
+
+tpca <- prcomp(reference$targets_ref[,-1],center = F,scale. = F)
+tpca_short <- prcomp(reference$targets_ref_short[,-1],center = F,scale. = F)
 
 if (!wgs) {
-    bgpca <- prcomp(reference$background_ref[,-1],center = F,scale. = F)$x
-    bgpca_short <- prcomp(reference$background_ref_short[,-1],center = F,scale. = F)$x
+    bgpca <- prcomp(reference$background_ref[,-1],center = F,scale. = F)
+    bgpca_short <- prcomp(reference$background_ref_short[,-1],center = F,scale. = F)
 }
 
 
 
-# Reference data correction ------------------------------------------------------------
+# Reference data correction v1 ------------------------------------------------------------
 
-# correct using reference
+# correct using reference PCA
 jcorrect <- function(temp,train_ix=NULL) {
     
     if (is.null(train_ix)) train_ix <- rep(TRUE,nrow(temp))
@@ -382,13 +394,13 @@ jcorrect <- function(temp,train_ix=NULL) {
                        subset = train_ix)
         temp[,lr:=lr-predict(loess_temp,temp)]
 
-        mapd <- mapd(temp$lr)
-        #cat(round(mapd,4),'>>')
-        if (mapd < best_mapd) {
-            best_lr <- temp$lr
-            best_mapd <- mapd
-            runs <- i
-        }
+        # mapd <- mapd(temp$lr)
+        # #cat(round(mapd,4),'>>')
+        # if (mapd < best_mapd) {
+        #     best_lr <- temp$lr
+        #     best_mapd <- mapd
+        #     runs <- i
+        # }
 
     }
     
@@ -411,14 +423,14 @@ targets[,log2_short:=rawLR_short]
 temp <- cbind(data.table(
     lr=targets[is_target==T & chromosome!='Y']$rawLR),
     gc=targets[is_target==T & chromosome!='Y']$gc,
-    tpca)
+    tpca$x)
 targets[is_target==T & chromosome!='Y',log2:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
 
 # short
 temp <- cbind(data.table(
     lr=targets[is_target==T & chromosome!='Y']$rawLR_short),
     gc=targets[is_target==T & chromosome!='Y']$gc,
-    tpca_short)
+    tpca_short$x)
 targets[is_target==T & chromosome!='Y',log2_short:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
 
 if (!wgs) {
@@ -426,7 +438,7 @@ if (!wgs) {
     temp <- cbind(data.table(
         lr=targets[is_target==F & chromosome!='Y']$rawLR),
         gc=targets[is_target==F & chromosome!='Y']$gc,
-        bgpca)
+        bgpca$x)
     targets[is_target==F & chromosome!='Y',log2:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
     
     
@@ -434,17 +446,102 @@ if (!wgs) {
     temp <- cbind(data.table(
         lr=targets[is_target==F & chromosome!='Y']$rawLR_short),
         gc=targets[is_target==F & chromosome!='Y']$gc,
-        bgpca_short)
+        bgpca_short$x)
     targets[is_target==F & chromosome!='Y',log2_short:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
     
 }
 
+
+
+
+
+
+# Reference data correction v2 ------------------------------------------------------------
+
+flatten <- function(vector) return(vector-runmed(vector,k=11))
+flatten_mat <- function(mat) return(apply(mat,2,flatten))
+
+jcorrect_v2 <- function(lr,gc,ref) {
+
+    flat_sample <- flatten(lr)
+    flat_ref <- flatten_mat(ref)
+    
+    pca <- prcomp(t(flat_ref),center = F,scale. = F)
+    
+    ncomp <- min(10,ceiling(ncol(flat_ref)/2))
+    scores <- pca$x[,1:ncomp]
+    
+    getCoeff <- function(scores, responsevector) {
+        m <- rlm(responsevector ~ scores)
+        return(as.data.table(t(m$coefficients)))
+    }  
+    
+    coeffs <- NULL
+    for (i in 1:nrow(ref)) {
+        coeffs[[i]] <- getCoeff(scores,t(ref[i,]))
+    }
+    coeffs <- rbindlist(coeffs)
+    
+    # compute prediction
+    prediction <- coeffs$`(Intercept)`
+    for (i in 2:ncol(coeffs)) {
+        prediction <- prediction + coeffs[,..i] * scores[i-1]
+    }
+    
+    new_lr <- lr-prediction[[1]]
+    return(new_lr)
+}
+
+
+
+# standard
+
+#lr <- targets[is_target==T & chromosome!='Y']$rawLR
+#gc <- targets[is_target==T & chromosome!='Y']$gc
+#ref <- reference$targets_ref[,-1]
+
+targets[is_target==T & chromosome!='Y',log2x:=jcorrect_v2(rawLR,
+                                                      gc,
+                                                      reference$targets_ref[,-1])]
+
+# short
+targets[is_target==T & chromosome!='Y',log2_shortx:=jcorrect_v2(rawLR_short,
+                                                      gc,
+                                                      reference$targets_ref_short[,-1])]
+
+if (!wgs) {
+    # standard bg
+    targets[is_target==F & chromosome!='Y',log2x:=jcorrect_v2(rawLR,
+                                                          gc,
+                                                          reference$background_ref[,-1])]
+    
+    
+    # bg short
+    targets[is_target==F & chromosome!='Y',log2_shortx:=jcorrect_v2(rawLR_short,
+                                                          gc,
+                                                          reference$background_ref_short[,-1])]
+    
+}
+
+
+# Remove outliers 2 ------------------------------------------------------------
+
+deviation <- function(vector) {
+    d <- abs(diff(vector))
+    dd <- c(1,d) * c(d,1)
+    return(dd)
+}
+
+targets[,dev:=deviation(log2),by=chromosome]
+targets[dev>3,log2:=NA]
+targets$dev <- NULL
 
 # Segmentation ------------------------------------------------------------
 
 
 
 getsegs <- function(targets, logratio) {
+    #ranked <- dnorm(rank(logratio,na.last = F)/length(logratio))
     segments <- segmentByCBS(y=logratio,avg='median',
                              chromosome=targets$chromosome,#as.numeric(str_replace(targets$chromosome,'X','23')),
                              alpha = 0.01,undo=1)
@@ -701,6 +798,30 @@ if (T) {
                     mapping = aes(x=gc,y=2^log2,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
         scale_fill_hue() + scale_y_log10(limits=ylims) 
     m <- targets[is_target==T,median(count)]
+    
+    ##### testing alt. correction:
+    p$order_log2x <- ggplot(targets) + xlab('Order of genomic position') + ylab('Corrected depth v.2') +
+        geom_point(data=targets[is.na(label)],mapping = aes(x=bin,y=2^log2x),fill='#60606070',col='#20202070',size=1) +
+        geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2x,fill=label),shape=21,col='#00000050',size=size) +
+        scale_fill_hue() + scale_y_log10(limits=ylims) +
+        geom_segment(data=segments,col='green',size=1,
+                     mapping = aes(x=start,xend=end,y=2^mean,yend=2^mean)) +
+        scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
+                           expand = c(.01,.01),labels = chroms$chromosome) +
+        theme(panel.grid.major.x = element_blank(),
+              panel.grid.minor.y = element_line(),
+              panel.grid.minor.x = element_line(color = 'black'),
+              axis.line = element_line(),
+              axis.ticks = element_line()) 
+    # logR by gc
+    p$gc_log2x <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth v.2') +
+        geom_point(data=targets,mapping = aes(x=gc,y=2^log2x),fill='#60606040',col='#20202040',shape=21,size=1) + # fill='#60606040'
+        geom_smooth(data=targets[!is.na(label)],
+                    mapping = aes(x=gc,y=2^log2x,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
+        scale_fill_hue() + scale_y_log10(limits=ylims) 
+    m <- targets[is_target==T,median(count)]
+    #####
+    
     if (snp_allele_ratio) {
         # allele ratio by order 
         p$order_alleleratio <- ggplot(targets) + xlab('Order of genomic position') + ylab('Allele ratio') +
@@ -781,11 +902,13 @@ if (T) {
 
         layout <-  "ABBBB
                 CDDDD
-                EEEEE
+                EFFFF
+                GGGGG
                 "
         fig <- 
             p$gc_rawdepth+p$order_rawdepth+
             p$gc_log2+p$order_log2+
+            p$gc_log2x+p$order_log2x+
             p$pos_log2+
             plot_layout(design = layout,guides = 'collect')
     }
