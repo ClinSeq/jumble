@@ -350,6 +350,7 @@ targets[,rawLR_short:=rawLR_short-reference$median_short]
 
 deviation <- function(vector) {
     d <- abs(diff(vector))
+    d[is.na(d)] <- 1
     dd <- c(1,d) * c(d,1)
     return(dd)
 }
@@ -528,6 +529,7 @@ if (!wgs) {
 
 deviation <- function(vector) {
     d <- abs(diff(vector))
+    d[is.na(d)] <- 1
     dd <- c(1,d) * c(d,1)
     return(dd)
 }
