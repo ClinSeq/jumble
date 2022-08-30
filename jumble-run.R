@@ -541,11 +541,9 @@ targets$dev <- NULL
 # Segmentation ------------------------------------------------------------
 
 
-
 getsegs <- function(targets, logratio) {
-    #ranked <- dnorm(rank(logratio,na.last = F)/length(logratio))
     segments <- segmentByCBS(y=logratio,avg='median',
-                             chromosome=targets$chromosome,#as.numeric(str_replace(targets$chromosome,'X','23')),
+                             chromosome=targets$chromosome,
                              alpha = 0.01,undo=1)
     segments <- as.data.table(segments)[!is.na(chromosome),-1]
     segments[,start_pos:=targets$start[ceiling(start)]]
@@ -554,6 +552,7 @@ getsegs <- function(targets, logratio) {
     
     for (i in 1:nrow(segments)) {
         ix <- ceiling(segments[i]$start):floor(segments[i]$end)
+        segments[ix,mean:=peakx(log2)] # <----------------- here, value per segment is set
         genes <- paste0(targets$gene[ix],collapse = ',')
         genes <- unique(strsplit(genes,',')[[1]])
         genes <- str_remove_all(genes,'[<>]')
@@ -565,26 +564,18 @@ getsegs <- function(targets, logratio) {
 }
 
 
-# Merge targets and background for segmentation
-# bins <- rbind(targets[,.(chromosome,start,mid,end,log2,type='t')],
-#               background[,.(chromosome,start,mid,end,log2,type='b')])
-
-#bins <- rbind(targets,background,fill=T)
-
+# Do the segmentation
 targets[,chromosome:=str_replace(chromosome,'Y','24')][,chromosome:=str_replace(chromosome,'X','23')][,chromosome:=as.numeric(chromosome)]
 segments <- getsegs(targets, targets$log2)
 targets[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 segments[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 
-# Gene+segment table ------------------------------------------------------------
 
+# Gene+segment table ------------------------------------------------------------
 
 segments_temp <- segments[,.(segment=paste(1:.N),type='segment',chromosome,start=start_pos,end=end_pos,
                          length=end_pos-start_pos,
                          bins=nbrOfLoci,genes,mean)]
-
-# which segment, by gene
-#genes <- sort(unique(strsplit(paste0(unique(targets[!gene %in% c('','Background')]$gene),collapse = ','),',')[[1]]))
 
 genes <- targets[is_target==T,.(segment='',type='gene',chromosome,start,end,length=NA,bins=0,
                     genes=gene,log2,
@@ -604,7 +595,6 @@ genes[,bins:=.N,by=genes]
 suppressWarnings(genes[,mean:=round(median(log2,na.rm=T),3),by=genes])
 
 genes[,log2:=NULL]
-
 
 suppressWarnings(
     segments_genes <- rbind(segments_temp,unique(genes))[order(as.numeric(chromosome),start)]
@@ -627,9 +617,11 @@ fwrite(x = targets,file = paste0(opt$output_dir,'/',clinbarcode,'.targets.csv'))
 
 
 # for compatibility with CNVkit.
-# cnr:  chromosome      start   end     gene    depth   log2    weight
-cnr <- targets[,.(chromosome=as.character(chromosome),start,end,gene,depth=round(count/width*150,3),log2,weight=1)][gene=='',gene:='-']
-#cnr[,chromosome:=str_replace(chromosome,'23','X')][,chromosome:=str_replace(chromosome,'24','Y')]
+# cnr:  chromosome      start   end     gene    depth   log2    weight ()
+cnr <- targets[,.(chromosome=as.character(chromosome),start,end,gene,
+                  depth=round(count/width*150,3),log2,weight=1),
+               gc,count,label][gene=='',gene:='-']
+
 fwrite(x = cnr,file = paste0(opt$output_dir,'/',clinbarcode,'.cnr'),sep = '\t')
 
 # cns:  chromosome      start   end     gene    log2    depth   probes  weight
@@ -651,11 +643,7 @@ if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.*counts.RDS')))
 
 
 # Save workspace ------------------------------------------------------------
-save.image(paste0(opt$output_dir,'/',clinbarcode,'.jumble_workspace.Rdata'))
-
-
-# bins$bins <- 'Target'
-# bins[gene=='Background']$bins <- 'Background'
+#save.image(paste0(opt$output_dir,'/',clinbarcode,'.jumble_workspace.Rdata'))
 
 
 
@@ -822,7 +810,7 @@ if (T) {
                     mapping = aes(x=gc,y=2^log2x,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
         scale_fill_hue() + scale_y_log10(limits=ylims) 
     m <- targets[is_target==T,median(count)]
-    #####
+    ##
     
     if (snp_allele_ratio) {
         # allele ratio by order 
