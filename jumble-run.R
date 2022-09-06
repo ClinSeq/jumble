@@ -362,12 +362,12 @@ targets$dev <- NULL
 
 # PCA v1 ------------------------------------------------------------
 
-tpca <- prcomp(reference$targets_ref[,-1],center = F,scale. = F)
-tpca_short <- prcomp(reference$targets_ref_short[,-1],center = F,scale. = F)
+tpca <- prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x
+tpca_short <- prcomp(reference$targets_ref_short[,-1],center = F,scale. = F)$x
 
 if (!wgs) {
-    bgpca <- prcomp(reference$background_ref[,-1],center = F,scale. = F)
-    bgpca_short <- prcomp(reference$background_ref_short[,-1],center = F,scale. = F)
+    bgpca <- prcomp(reference$background_ref[,-1],center = F,scale. = F)$x
+    bgpca_short <- prcomp(reference$background_ref_short[,-1],center = F,scale. = F)$x
 }
 
 
@@ -389,20 +389,10 @@ jcorrect <- function(temp,train_ix=NULL) {
     best_lr <- temp$lr
     best_mapd <- mapd(temp$lr)
     for (i in 1:(ncol(temp)-2)) {
-
         temp$thispc=temp[[paste0('PC',i)]]
         loess_temp <- rlm(lr ~ thispc, data=temp,
                        subset = train_ix)
         temp[,lr:=lr-predict(loess_temp,temp)]
-
-        # mapd <- mapd(temp$lr)
-        # #cat(round(mapd,4),'>>')
-        # if (mapd < best_mapd) {
-        #     best_lr <- temp$lr
-        #     best_mapd <- mapd
-        #     runs <- i
-        # }
-
     }
     
     if (all(!is.na(temp$gc))) {
@@ -412,7 +402,6 @@ jcorrect <- function(temp,train_ix=NULL) {
         temp[,lr:=lr-predict(loess_temp,temp)]
     }
     
-    #cat('ran ',runs,'/',ncol(temp)-2, ' times\n')
     return(temp$lr)
 }
 
@@ -424,14 +413,14 @@ targets[,log2_short:=rawLR_short]
 temp <- cbind(data.table(
     lr=targets[is_target==T & chromosome!='Y']$rawLR),
     gc=targets[is_target==T & chromosome!='Y']$gc,
-    tpca$x)
+    tpca)
 targets[is_target==T & chromosome!='Y',log2:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
 
 # short
 temp <- cbind(data.table(
     lr=targets[is_target==T & chromosome!='Y']$rawLR_short),
     gc=targets[is_target==T & chromosome!='Y']$gc,
-    tpca_short$x)
+    tpca_short)
 targets[is_target==T & chromosome!='Y',log2_short:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
 
 if (!wgs) {
@@ -439,7 +428,7 @@ if (!wgs) {
     temp <- cbind(data.table(
         lr=targets[is_target==F & chromosome!='Y']$rawLR),
         gc=targets[is_target==F & chromosome!='Y']$gc,
-        bgpca$x)
+        bgpca)
     targets[is_target==F & chromosome!='Y',log2:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
     
     
@@ -447,51 +436,86 @@ if (!wgs) {
     temp <- cbind(data.table(
         lr=targets[is_target==F & chromosome!='Y']$rawLR_short),
         gc=targets[is_target==F & chromosome!='Y']$gc,
-        bgpca_short$x)
+        bgpca_short)
     targets[is_target==F & chromosome!='Y',log2_short:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
     
 }
 
 
+# PCA v2 ------------------------------------------------------------
 
+tpca <- robpca(reference$targets_ref[,-1], k = ncol(reference$targets_ref)-1, kmax = 20, 
+               alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+tpca_short <- robpca(reference$targets_ref_short[,-1], k = ncol(reference$targets_ref_short)-1, kmax = 20, 
+               alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+
+if (!wgs) {
+    bgpca <- robpca(reference$background_ref[,-1], 
+                    k = ncol(reference$background_ref)-1, kmax = 20, 
+                   alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+    bgpca_short <- robpca(reference$background_ref_short[,-1], 
+                          k = ncol(reference$background_ref_short)-1, kmax = 20, 
+                         alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+}
 
 
 
 # Reference data correction v2 ------------------------------------------------------------
 
-flatten <- function(vector) return(vector-runmed(vector,k=11))
-flatten_mat <- function(mat) return(apply(mat,2,flatten))
 
-jcorrect_v2 <- function(lr,gc,ref) {
+targets[,log2x:=rawLR]
 
-    flat_sample <- flatten(lr)
-    flat_ref <- flatten_mat(ref)
-    
-    pca <- prcomp(t(flat_ref),center = F,scale. = F)
-    
-    ncomp <- min(10,ceiling(ncol(flat_ref)/2))
-    scores <- pca$x[,1:ncomp]
-    
-    getCoeff <- function(scores, responsevector) {
-        m <- rlm(responsevector ~ scores)
-        return(as.data.table(t(m$coefficients)))
-    }  
-    
-    coeffs <- NULL
-    for (i in 1:nrow(ref)) {
-        coeffs[[i]] <- getCoeff(scores,t(ref[i,]))
-    }
-    coeffs <- rbindlist(coeffs)
-    
-    # compute prediction
-    prediction <- coeffs$`(Intercept)`
-    for (i in 2:ncol(coeffs)) {
-        prediction <- prediction + coeffs[,..i] * scores[i-1]
-    }
-    
-    new_lr <- lr-prediction[[1]]
-    return(new_lr)
+# standard
+temp <- cbind(data.table(
+    lr=targets[is_target==T & chromosome!='Y']$rawLR),
+    gc=targets[is_target==T & chromosome!='Y']$gc,
+    tpca)
+targets[is_target==T & chromosome!='Y',log2x:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
+
+if (!wgs) {
+    # standard bg
+    temp <- cbind(data.table(
+        lr=targets[is_target==F & chromosome!='Y']$rawLR),
+        gc=targets[is_target==F & chromosome!='Y']$gc,
+        bgpca)
+    targets[is_target==F & chromosome!='Y',log2x:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
 }
+
+
+
+# flatten <- function(vector) return(vector-runmed(vector,k=11))
+# flatten_mat <- function(mat) return(apply(mat,2,flatten))
+# 
+# jcorrect_v2 <- function(lr,gc,ref) {
+# 
+#     flat_sample <- flatten(lr)
+#     flat_ref <- flatten_mat(ref)
+#     
+#     pca <- prcomp(t(flat_ref),center = F,scale. = F)
+#     
+#     ncomp <- min(10,ceiling(ncol(flat_ref)/2))
+#     scores <- pca$x[,1:ncomp]
+#     
+#     getCoeff <- function(scores, responsevector) {
+#         m <- rlm(responsevector ~ scores)
+#         return(as.data.table(t(m$coefficients)))
+#     }  
+#     
+#     coeffs <- NULL
+#     for (i in 1:nrow(ref)) {
+#         coeffs[[i]] <- getCoeff(scores,t(ref[i,]))
+#     }
+#     coeffs <- rbindlist(coeffs)
+#     
+#     # compute prediction
+#     prediction <- coeffs$`(Intercept)`
+#     for (i in 2:ncol(coeffs)) {
+#         prediction <- prediction + coeffs[,..i] * scores[i-1]
+#     }
+#     
+#     new_lr <- lr-prediction[[1]]
+#     return(new_lr)
+# }
 
 
 
@@ -501,28 +525,28 @@ jcorrect_v2 <- function(lr,gc,ref) {
 #gc <- targets[is_target==T & chromosome!='Y']$gc
 #ref <- reference$targets_ref[,-1]
 
-targets[is_target==T & chromosome!='Y',log2x:=jcorrect_v2(rawLR,
-                                                      gc,
-                                                      reference$targets_ref[,-1])]
-
-# short
-targets[is_target==T & chromosome!='Y',log2_shortx:=jcorrect_v2(rawLR_short,
-                                                      gc,
-                                                      reference$targets_ref_short[,-1])]
-
-if (!wgs) {
-    # standard bg
-    targets[is_target==F & chromosome!='Y',log2x:=jcorrect_v2(rawLR,
-                                                          gc,
-                                                          reference$background_ref[,-1])]
-    
-    
-    # bg short
-    targets[is_target==F & chromosome!='Y',log2_shortx:=jcorrect_v2(rawLR_short,
-                                                          gc,
-                                                          reference$background_ref_short[,-1])]
-    
-}
+# targets[is_target==T & chromosome!='Y',log2x:=jcorrect_v2(rawLR,
+#                                                       gc,
+#                                                       reference$targets_ref[,-1])]
+# 
+# # short
+# targets[is_target==T & chromosome!='Y',log2_shortx:=jcorrect_v2(rawLR_short,
+#                                                       gc,
+#                                                       reference$targets_ref_short[,-1])]
+# 
+# if (!wgs) {
+#     # standard bg
+#     targets[is_target==F & chromosome!='Y',log2x:=jcorrect_v2(rawLR,
+#                                                           gc,
+#                                                           reference$background_ref[,-1])]
+#     
+#     
+#     # bg short
+#     targets[is_target==F & chromosome!='Y',log2_shortx:=jcorrect_v2(rawLR_short,
+#                                                           gc,
+#                                                           reference$background_ref_short[,-1])]
+#     
+# }
 
 
 # Remove outliers 2 ------------------------------------------------------------

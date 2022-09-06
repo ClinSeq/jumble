@@ -14,7 +14,8 @@ suppressPackageStartupMessages(library(ggplot2))
 suppressPackageStartupMessages(library(VariantAnnotation))
 suppressPackageStartupMessages(library(doParallel))
 suppressPackageStartupMessages(library(MASS))
-
+suppressPackageStartupMessages(library(rtracklayer))
+suppressPackageStartupMessages(library(rospca))
 
 # Options ------------------------------------------------------------
 
@@ -110,7 +111,6 @@ targets[,gene:=''][targets$is_target==T,gene:=unlist(t)][gene=='<>',gene:='']
 targets[targets$is_target==F,gene:='Background']
 
 # label some genes
-#t <- targets[chromosome==13 & str_detect(gene,'RB1')]$bin; targets[bin %in% min(t):max(t),gene:='RB1']
 label_genes <- c('AR','ATM','BRCA2','PTEN','RB1','ERG','CDK12','TMPRSS2')
 targets[,label:=as.character(NA)]
 for (g in label_genes) targets[str_detect(gene,paste0('<',g,'>')),label:=g]
@@ -123,10 +123,16 @@ targets[,gene:=str_remove_all(gene,'[<>]')]
 targets[,gc:=as.double(NA)]
 targets[is_target==T]$gc <- gcContentCalc(ucsc_ranges , organism=Hsapiens)
 
+# Mappability ------------------------------------------------------------
+
+targets[,map:=as.double(NA)]
+targets[is_target==T]$map <- mappabilityCalc(ucsc_ranges , organism=Hsapiens)
+
+
 # Backbone definition ------------------------------------------------------------
 
 set.seed(25) # <------------------ To be reproducible.
-max_backbone_in_gene <- 20
+max_backbone_in_gene <- 20 #  <--- applies to targeted
 
 wgs <- F
 if (is.null(allcounts[[1]]$target_bed_file)) wgs <- T
@@ -507,21 +513,26 @@ rm(targetlist)
 
 # Drop some bins ------------------------------------------------------------
 
+
+# Get problematic regions
+mySession = browserSession("UCSC")
+genome(mySession) <- "hg19"
+blacklist <- getTable(
+    ucscTableQuery(mySession, track="problematic", table="encBlacklist"))
+# not currently used.
+
 # Low coverage threshold
 threshold <- median(targets$count) * 0.05
-keep_targets <- targets[,quantile(count,.50),by=bin][V1 > threshold]
+keep_targets <- targets[,median(count),by=bin][V1 > threshold]
 targets <- targets[bin %in% keep_targets$bin]
 
 # High coverage threshold
 threshold <- median(targets$count) / 0.05
-keep_targets <- targets[,quantile(count,.50),by=bin][V1 < threshold]
+keep_targets <- targets[,median(count),by=bin][V1 < threshold]
 targets <- targets[bin %in% keep_targets$bin]
 
-# Variance threshold
-# threshold <- quantile(targets[,var(count),by=bin]$V1,.99)
-# keep_targets <- targets[,var(count),by=bin][V1 < threshold]
-# targets <- targets[bin %in% keep_targets$bin]
-
+# Mappability 0 removed
+targets <- targets[map>0]
 
 # SNP and Median correct ------------------------------------------------------------
 
@@ -546,12 +557,15 @@ targets[,rawLR_short:=rawLR_short-median(rawLR_short[is_backbone]),by=c('sample'
 
 # X-Y chromosome correct ------------------------------------------------------------
 
-# Double X values where their median implies male
+# Double X values in samples where their median implies male
 targets[,xmedian:=median(rawLR[chromosome=='X']),by=sample]
 targets[,male:=2^xmedian < .75] # assign gender
+
+targets[,nonPA:=chromosome %in% c('X') & end>2.70e6 & start<154.93e6] # hard coded PA
+
 if (length(unique(targets[male==T]$sample))>0) { # if at least 1 male
-    targets[chromosome=='X' & male==T,rawLR:=rawLR+1]
-    targets[chromosome=='X' & male==T,rawLR_short:=rawLR_short+1]
+    targets[chromosome=='X' & male==T & nonPA,rawLR:=rawLR+1]
+    targets[chromosome=='X' & male==T & nonPA,rawLR_short:=rawLR_short+1]
 }
 
 # Double Y values where their median implies male
@@ -559,13 +573,15 @@ targets[,ymedian:=median(rawLR[chromosome=='Y']),by=sample] # median by sample
 targets[,male:=2^ymedian > .25] # assign gender based on Y
 
 if (length(unique(targets[male==T]$sample))>0) { # if at least 1 male
-    targets[male==T & chromosome=='Y',rawLR:=rawLR+1]
-    targets[male==T & chromosome=='Y',rawLR_short:=rawLR_short+1]
+    targets[male==T & chromosome=='Y' & end<28.79e6,rawLR:=rawLR+1] # hard coded PA
+    targets[male==T & chromosome=='Y' & end<28.79e6,rawLR_short:=rawLR_short+1]
 }
 
 # Y is NA where median implies female
 targets[chromosome=='Y' & male==F,rawLR:=NA]
 targets[chromosome=='Y' & male==F,rawLR_short:=NA]
+
+
 
 
 # Reference set median correct ------------------------------------------------------------
@@ -574,25 +590,42 @@ targets[,refmedian_short:=median(rawLR_short,na.rm=T),by=bin][,rawLR_short:=rawL
 
 
 
+
+# Impute missing ----------------------------------------------------------
+
+# If any missing, replace with random value near 0 (which is the median)
+targets[is.na(rawLR),rawLR:=rnorm(n = .N,mean = 0,sd = .1)]
+targets[is.na(rawLR_short),rawLR_short:=rnorm(n = .N,mean = 0,sd = .1)]
+
+
 # Matrix form ------------------------------------------------------------
-# excluding Y, and separate for target and nontarget
-tmat <- dcast(data = targets[chromosome!='Y' & is_target,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
-tmat_short <- dcast(data = targets[chromosome!='Y' & is_target,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
+# separate for target and nontarget
+tmat <- dcast(data = targets[is_target==T,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
+tmat_short <- dcast(data = targets[is_target==T,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
+
 
 if (!wgs) {
-bgmat <- dcast(data = targets[chromosome!='Y' & !is_target,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
-bgmat_short <- dcast(data = targets[chromosome!='Y' & !is_target,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
+bgmat <- dcast(data = targets[is_target==F,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
+bgmat_short <- dcast(data = targets[is_target==F,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
 }
 
 # PCA ------------------------------------------------------------
 
+
+# pca <- robpca(tmat[,-1], k = ncol(tmat)-1, kmax = 10, alpha = 0.75, h = NULL, mcd = FALSE,
+#         ndir = 1000, skew = FALSE)
+# pca_short <- robpca(tmat_short[,-1], k = ncol(tmat_short)-1, kmax = 10, alpha = 0.75, h = NULL, mcd = FALSE,
+#               ndir = 1000, skew = FALSE)
+
 # not retained anymore, done in _run instead
-tpca <- prcomp((tmat[,-1]),center = F,scale. = F)
-tpca_short <- prcomp((tmat_short[,-1]),center = F,scale. = F)
-if (!wgs) {
-    bgpca <- prcomp((bgmat[,-1]),center = F,scale. = F)
-    bgpca_short <- prcomp((bgmat_short[,-1]),center = F,scale. = F)
-}
+#tpca <- prcomp((tmat[,-1]),center = F,scale. = F)
+#tpca_short <- prcomp((tmat_short[,-1]),center = F,scale. = F)
+
+
+# if (!wgs) {
+#     bgpca <- prcomp((bgmat[,-1]),center = F,scale. = F)
+#     bgpca_short <- prcomp((bgmat_short[,-1]),center = F,scale. = F)
+# }
 
 # Reference object ------------------------------------------------------------
 if (wgs) allcounts[[1]]$target_bed_file <- 'wgs'
