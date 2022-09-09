@@ -2,20 +2,23 @@
 
 # Markus Mayrhofer 2022
 # Dependencies ------------------------------------------------------------
-suppressPackageStartupMessages(library(optparse))
-suppressPackageStartupMessages(library(data.table))
-suppressPackageStartupMessages(library(stringr))
-suppressPackageStartupMessages(library(bamsignals))
-suppressPackageStartupMessages(library(Rsamtools))
-suppressPackageStartupMessages(library(GenomicRanges))
-suppressPackageStartupMessages(library(MASS))
-suppressPackageStartupMessages(library(VariantAnnotation))
-suppressPackageStartupMessages(library(PSCBS))
-suppressPackageStartupMessages(library(ggplot2)); theme_set(theme_bw())
-suppressPackageStartupMessages(library(patchwork))
-suppressPackageStartupMessages(library(BSgenome.Hsapiens.UCSC.hg19))
-suppressPackageStartupMessages(library(BSgenome))
-suppressPackageStartupMessages(library(Repitools))
+{
+    suppressPackageStartupMessages(library(optparse))
+    suppressPackageStartupMessages(library(data.table))
+    suppressPackageStartupMessages(library(stringr))
+    suppressPackageStartupMessages(library(bamsignals))
+    suppressPackageStartupMessages(library(Rsamtools))
+    suppressPackageStartupMessages(library(GenomicRanges))
+    suppressPackageStartupMessages(library(MASS))
+    suppressPackageStartupMessages(library(VariantAnnotation))
+    suppressPackageStartupMessages(library(PSCBS))
+    suppressPackageStartupMessages(library(ggplot2)); theme_set(theme_bw())
+    suppressPackageStartupMessages(library(patchwork))
+    suppressPackageStartupMessages(library(BSgenome.Hsapiens.UCSC.hg19))
+    suppressPackageStartupMessages(library(BSgenome))
+    suppressPackageStartupMessages(library(Repitools))
+    suppressPackageStartupMessages(library(rospca))
+}
 
 
 # Options ------------------------------------------------------------
@@ -125,7 +128,7 @@ ranges <- makeGRangesFromDataFrame(targets)
 #save.image('ws.Rdata')
 
 peakx <- function(data) {
-    d <- density(data)
+    d <- density(data[!is.na(data)])
     maxy <- max(d$y)
     maxx <- d$x[d$y==maxy][1]
     return(maxx)
@@ -362,12 +365,14 @@ targets$dev <- NULL
 
 # PCA v1 ------------------------------------------------------------
 
-tpca <- prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x
-tpca_short <- prcomp(reference$targets_ref_short[,-1],center = F,scale. = F)$x
+ix <- targets$is_target
+
+tpca <- as.data.table(prcomp(reference$targets_ref[ix,-1],center = F,scale. = F)$x)
+tpca_short <- as.data.table(prcomp(reference$targets_ref_short[ix,-1],center = F,scale. = F)$x)
 
 if (!wgs) {
-    bgpca <- prcomp(reference$background_ref[,-1],center = F,scale. = F)$x
-    bgpca_short <- prcomp(reference$background_ref_short[,-1],center = F,scale. = F)$x
+    bgpca <- as.data.table(prcomp(reference$background_ref[!ix,-1],center = F,scale. = F)$x)
+    bgpca_short <- as.data.table(prcomp(reference$background_ref_short[!ix,-1],center = F,scale. = F)$x)
 }
 
 
@@ -377,30 +382,57 @@ if (!wgs) {
 # correct using reference PCA
 jcorrect <- function(temp,train_ix=NULL) {
     
-    if (is.null(train_ix)) train_ix <- rep(TRUE,nrow(temp))
+    if (is.logical(train_ix[1])) train_ix <- which(train_ix)
+    if (is.null(train_ix)) train_ix <- which(rep(TRUE,nrow(temp)))
     
-    loess_temp <- loess(lr ~ PC1+PC2+PC3, data = temp,
-                     subset = train_ix,
-                     family="symmetric", control = loess.control(surface = "direct"))
-    temp[,lr:=lr-predict(loess_temp,temp)]
+    set.seed(25)
+    if (length(train_ix)>10e3) {
+        new_ix <- train_ix[order(rnorm(n=length(train_ix)))][1:10e3]
+        train_ix <- new_ix
+    }
     
-    
-    runs <- 0
-    best_lr <- temp$lr
-    best_mapd <- mapd(temp$lr)
-    for (i in 1:(ncol(temp)-2)) {
+    pcs <- ncol(temp)-2
+ 
+    # if (pcs==1) {
+    #     loess_temp <- loess(lr ~ PC1, data = temp,
+    #                         subset = train_ix,
+    #                         family="symmetric", control = loess.control(surface = "direct"))
+    #     temp[,lr:=lr-predict(loess_temp,temp)]
+    # }
+    # if (pcs==2) {
+    #     loess_temp <- loess(lr ~ PC1+PC2, data = temp,
+    #                         subset = train_ix,
+    #                         family="symmetric", control = loess.control(surface = "direct"))
+    #     temp[,lr:=lr-predict(loess_temp,temp)]
+    # }
+    # if (pcs>=3) {
+    #     loess_temp <- loess(lr ~ PC1+PC2+PC3, data = temp,
+    #                         subset = train_ix,
+    #                         family="symmetric", control = loess.control(surface = "direct"))
+    #     temp[,lr:=lr-predict(loess_temp,temp)]
+    # }
+        
+    for (i in 1:(pcs)) {
         temp$thispc=temp[[paste0('PC',i)]]
         loess_temp <- rlm(lr ~ thispc, data=temp,
                        subset = train_ix)
         temp[,lr:=lr-predict(loess_temp,temp)]
     }
     
-    if (all(!is.na(temp$gc))) {
-        loess_temp=loess(lr ~ gc, data = temp,
-                         subset = train_ix,
-                         family="symmetric", control = loess.control(surface = "direct"))
-        temp[,lr:=lr-predict(loess_temp,temp)]
+    # apply GC correct as linear function, where there is gc
+    if (any(!is.na(temp$gc))) {
+        ix <- which(!is.na(temp$gc))
+        loess_temp <- rlm(lr ~ gc, data=temp[ix],
+                       subset = intersect(train_ix,ix))
+        temp[ix,lr:=lr-predict(loess_temp,temp[ix])]
     }
+    
+    # if (all(!is.na(temp$gc))) {
+    #     loess_temp=loess(lr ~ gc, data = temp,
+    #                      subset = train_ix,
+    #                      family="symmetric", control = loess.control(surface = "direct"))
+    #     temp[,lr:=lr-predict(loess_temp,temp)]
+    # }
     
     return(temp$lr)
 }
@@ -410,53 +442,56 @@ targets[,log2:=rawLR]
 targets[,log2_short:=rawLR_short]
 
 # standard
+ix <- targets$is_target
 temp <- cbind(data.table(
-    lr=targets[is_target==T & chromosome!='Y']$rawLR),
-    gc=targets[is_target==T & chromosome!='Y']$gc,
+    lr=targets[ix]$rawLR),
+    gc=targets[ix]$gc,
     tpca)
-targets[is_target==T & chromosome!='Y',log2:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
+targets[ix,log2:=jcorrect(temp,targets[ix]$is_backbone)]
 
 # short
 temp <- cbind(data.table(
-    lr=targets[is_target==T & chromosome!='Y']$rawLR_short),
-    gc=targets[is_target==T & chromosome!='Y']$gc,
+    lr=targets[ix]$rawLR_short),
+    gc=targets[ix]$gc,
     tpca_short)
-targets[is_target==T & chromosome!='Y',log2_short:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
+targets[ix,log2_short:=jcorrect(temp,targets[ix]$is_backbone)]
 
 if (!wgs) {
+    ix <- targets$is_target
     # standard bg
     temp <- cbind(data.table(
-        lr=targets[is_target==F & chromosome!='Y']$rawLR),
-        gc=targets[is_target==F & chromosome!='Y']$gc,
+        lr=targets[!ix]$rawLR),
+        gc=targets[!ix]$gc,
         bgpca)
-    targets[is_target==F & chromosome!='Y',log2:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
-    
-    
+    targets[!ix,log2:=jcorrect(temp,targets[!ix]$is_backbone)]
+  
     # bg short
     temp <- cbind(data.table(
-        lr=targets[is_target==F & chromosome!='Y']$rawLR_short),
-        gc=targets[is_target==F & chromosome!='Y']$gc,
+        lr=targets[!ix]$rawLR_short),
+        gc=targets[!ix]$gc,
         bgpca_short)
-    targets[is_target==F & chromosome!='Y',log2_short:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
+    targets[!ix,log2_short:=jcorrect(temp,targets[!ix]$is_backbone)]
     
 }
 
 
 # PCA v2 ------------------------------------------------------------
 
-tpca <- robpca(reference$targets_ref[,-1], k = ncol(reference$targets_ref)-1, kmax = 20, 
-               alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
-tpca_short <- robpca(reference$targets_ref_short[,-1], k = ncol(reference$targets_ref_short)-1, kmax = 20, 
-               alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
-
-if (!wgs) {
-    bgpca <- robpca(reference$background_ref[,-1], 
-                    k = ncol(reference$background_ref)-1, kmax = 20, 
-                   alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
-    bgpca_short <- robpca(reference$background_ref_short[,-1], 
-                          k = ncol(reference$background_ref_short)-1, kmax = 20, 
-                         alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
-}
+# ix <- targets$is_target
+# 
+# tpca <- robpca(reference$targets_ref[ix,-1], k = ncol(reference$targets_ref)-1, kmax = 20, 
+#                alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+# tpca_short <- robpca(reference$targets_ref_short[,-1], k = ncol(reference$targets_ref_short)-1, kmax = 20, 
+#                alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+# 
+# if (!wgs) {
+#     bgpca <- robpca(reference$background_ref[,-1], 
+#                     k = ncol(reference$background_ref)-1, kmax = 20, 
+#                    alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+#     bgpca_short <- robpca(reference$background_ref_short[,-1], 
+#                           k = ncol(reference$background_ref_short)-1, kmax = 20, 
+#                          alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+# }
 
 
 
@@ -465,22 +500,11 @@ if (!wgs) {
 
 targets[,log2x:=rawLR]
 
-# standard
 temp <- cbind(data.table(
-    lr=targets[is_target==T & chromosome!='Y']$rawLR),
-    gc=targets[is_target==T & chromosome!='Y']$gc,
+    lr=targets$rawLR),
+    gc=targets$gc,
     tpca)
-targets[is_target==T & chromosome!='Y',log2x:=jcorrect(temp,targets[is_target==T & chromosome!='Y']$is_backbone)]
-
-if (!wgs) {
-    # standard bg
-    temp <- cbind(data.table(
-        lr=targets[is_target==F & chromosome!='Y']$rawLR),
-        gc=targets[is_target==F & chromosome!='Y']$gc,
-        bgpca)
-    targets[is_target==F & chromosome!='Y',log2x:=jcorrect(temp,targets[is_target==F & chromosome!='Y']$is_backbone)]
-}
-
+targets[,log2x:=jcorrect(temp,targets$is_backbone)]
 
 
 # flatten <- function(vector) return(vector-runmed(vector,k=11))
@@ -559,8 +583,12 @@ deviation <- function(vector) {
 }
 
 targets[,dev:=deviation(log2),by=chromosome]
-targets[dev>3,log2:=NA]
+targets[dev>1,log2:=NA]
+targets[,dev:=deviation(log2_short),by=chromosome]
+targets[dev>1,log2_short:=NA]
 targets$dev <- NULL
+# targets[count==0,log2:=NA]
+# targets[count_short==0,log2_short:=NA]
 
 # Segmentation ------------------------------------------------------------
 
@@ -568,7 +596,7 @@ targets$dev <- NULL
 getsegs <- function(targets, logratio) {
     segments <- segmentByCBS(y=logratio,avg='median',
                              chromosome=targets$chromosome,
-                             alpha = 0.01,undo=1)
+                             alpha = 0.001,undo=1)
     segments <- as.data.table(segments)[!is.na(chromosome),-1]
     segments[,start_pos:=targets$start[ceiling(start)]]
     segments[,end_pos:=targets$end[floor(end)]]
@@ -576,14 +604,12 @@ getsegs <- function(targets, logratio) {
     
     for (i in 1:nrow(segments)) {
         ix <- ceiling(segments[i]$start):floor(segments[i]$end)
-        segments[ix,mean:=peakx(log2)] # <----------------- here, value per segment is set
-        genes <- paste0(targets$gene[ix],collapse = ',')
+        segments[i,mean:=peakx(logratio[ix])] # <----------------- here, value per segment is set
+        genes <- paste0(unique(targets[ix][gene!='']$gene),collapse = ',')
         genes <- unique(strsplit(genes,',')[[1]])
-        genes <- str_remove_all(genes,'[<>]')
         genes <- genes[!genes %in% c('','Background')]
         if (length(genes)>0) segments[i]$genes <- paste(genes,collapse = ', ')
     }
-    segments[,chromosome:=str_replace(as.character(chromosome),'23','X')]
     return(segments)
 }
 
@@ -643,8 +669,8 @@ fwrite(x = targets,file = paste0(opt$output_dir,'/',clinbarcode,'.targets.csv'))
 # for compatibility with CNVkit.
 # cnr:  chromosome      start   end     gene    depth   log2    weight ()
 cnr <- targets[,.(chromosome=as.character(chromosome),start,end,gene,
-                  depth=round(count/width*150,3),log2,weight=1),
-               gc,count,label][gene=='',gene:='-']
+                  depth=round(count/width*200,3),log2,weight=1,
+               gc,count,label)][gene=='',gene:='-']
 
 fwrite(x = cnr,file = paste0(opt$output_dir,'/',clinbarcode,'.cnr'),sep = '\t')
 
@@ -879,13 +905,13 @@ if (T) {
     for (i in 1:length(p)) p[[i]] <- p[[i]] + guides(fill=guide_legend(override.aes=list(shape=21,size=3)))
     
     stats <- paste0('Coverage: ',
-                    paste(round(quantile(targets[is_backbone==T]$count,c(.025,.975))),collapse = '-'),
+                    paste(round(quantile(targets[is_backbone==T,count*200/width],c(.025,.975))),collapse = '-'),
                     ', Noise: ',
                     noise(targets[is_target==T]$log2),'% / ', noise(targets[is_target==F]$log2),'%'
     )
     
     if (wgs) stats <- paste0('Coverage: ',
-                             paste(round(quantile(targets[is_backbone==T]$count,c(.025,.975))),collapse = '-'),
+                             paste(round(quantile(targets[is_backbone==T,count*200/width],c(.025,.975))),collapse = '-'),
                              ', Noise: ',
                              noise(targets[is_target==T]$log2),'%'
     )
