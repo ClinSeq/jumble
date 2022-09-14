@@ -44,7 +44,7 @@ counts_template <- reference[c("target_bed_file","chromlength","ranges")]
 
 wgs <- reference$target_bed_file=='wgs'
 
-
+#save.image('ws.Rdata')
 
 
 # Fragment counts ------------------------------------------------------------
@@ -128,6 +128,7 @@ ranges <- makeGRangesFromDataFrame(targets)
 #save.image('ws.Rdata')
 
 peakx <- function(data) {
+    if(length(data)==1) return(data)
     d <- density(data[!is.na(data)])
     maxy <- max(d$y)
     maxx <- d$x[d$y==maxy][1]
@@ -371,8 +372,8 @@ tpca <- as.data.table(prcomp(reference$targets_ref[ix,-1],center = F,scale. = F)
 tpca_short <- as.data.table(prcomp(reference$targets_ref_short[ix,-1],center = F,scale. = F)$x)
 
 if (!wgs) {
-    bgpca <- as.data.table(prcomp(reference$background_ref[!ix,-1],center = F,scale. = F)$x)
-    bgpca_short <- as.data.table(prcomp(reference$background_ref_short[!ix,-1],center = F,scale. = F)$x)
+    bgpca <- as.data.table(prcomp(reference$targets_ref[!ix,-1],center = F,scale. = F)$x)
+    bgpca_short <- as.data.table(prcomp(reference$targets_ref_short[!ix,-1],center = F,scale. = F)$x)
 }
 
 
@@ -392,25 +393,14 @@ jcorrect <- function(temp,train_ix=NULL) {
     }
     
     pcs <- ncol(temp)-2
- 
-    # if (pcs==1) {
-    #     loess_temp <- loess(lr ~ PC1, data = temp,
-    #                         subset = train_ix,
-    #                         family="symmetric", control = loess.control(surface = "direct"))
-    #     temp[,lr:=lr-predict(loess_temp,temp)]
-    # }
-    # if (pcs==2) {
-    #     loess_temp <- loess(lr ~ PC1+PC2, data = temp,
-    #                         subset = train_ix,
-    #                         family="symmetric", control = loess.control(surface = "direct"))
-    #     temp[,lr:=lr-predict(loess_temp,temp)]
-    # }
-    # if (pcs>=3) {
-    #     loess_temp <- loess(lr ~ PC1+PC2+PC3, data = temp,
-    #                         subset = train_ix,
-    #                         family="symmetric", control = loess.control(surface = "direct"))
-    #     temp[,lr:=lr-predict(loess_temp,temp)]
-    # }
+    bins <- nrow(temp)
+
+    if (pcs>=3 & bins<50e3) {
+        loess_temp <- loess(lr ~ PC1+PC2+PC3, data = temp,
+                            subset = train_ix,
+                            family="symmetric", control = loess.control(surface = "direct"))
+        temp[,lr:=lr-predict(loess_temp,temp)]
+    }
         
     for (i in 1:(pcs)) {
         temp$thispc=temp[[paste0('PC',i)]]
@@ -419,20 +409,20 @@ jcorrect <- function(temp,train_ix=NULL) {
         temp[,lr:=lr-predict(loess_temp,temp)]
     }
     
-    # apply GC correct as linear function, where there is gc
-    if (any(!is.na(temp$gc))) {
+    # apply GC correct as linear function, where there is gc, if many bins
+    if (bins > 50e3 & any(!is.na(temp$gc))) {
         ix <- which(!is.na(temp$gc))
         loess_temp <- rlm(lr ~ gc, data=temp[ix],
-                       subset = intersect(train_ix,ix))
+                          subset = intersect(train_ix,ix))
+        temp[ix,lr:=lr-predict(loess_temp,temp[ix])]
+        # or loess if fewer
+    } else if (any(!is.na(temp$gc))) {
+        ix <- which(!is.na(temp$gc))
+        loess_temp=loess(lr ~ gc, data = temp[ix],
+                         subset = intersect(train_ix,ix),
+                         family="symmetric", control = loess.control(surface = "direct"))
         temp[ix,lr:=lr-predict(loess_temp,temp[ix])]
     }
-    
-    # if (all(!is.na(temp$gc))) {
-    #     loess_temp=loess(lr ~ gc, data = temp,
-    #                      subset = train_ix,
-    #                      family="symmetric", control = loess.control(surface = "direct"))
-    #     temp[,lr:=lr-predict(loess_temp,temp)]
-    # }
     
     return(temp$lr)
 }
@@ -476,6 +466,8 @@ if (!wgs) {
 
 
 # PCA v2 ------------------------------------------------------------
+
+tpca <- as.data.table(prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x)
 
 # ix <- targets$is_target
 # 
@@ -596,7 +588,7 @@ targets$dev <- NULL
 getsegs <- function(targets, logratio) {
     segments <- segmentByCBS(y=logratio,avg='median',
                              chromosome=targets$chromosome,
-                             alpha = 0.001,undo=1)
+                             alpha = 0.01,undo=1)
     segments <- as.data.table(segments)[!is.na(chromosome),-1]
     segments[,start_pos:=targets$start[ceiling(start)]]
     segments[,end_pos:=targets$end[floor(end)]]
@@ -662,13 +654,13 @@ clinbarcode <- str_remove(name, "_nodups.bam")
 #fwrite(x = segments_genes,file = paste0(opt$output_dir,'/',clinbarcode,'.segments.csv'))
 
 # Jumble targets and background
-fwrite(x = targets,file = paste0(opt$output_dir,'/',clinbarcode,'.targets.csv'))
+#fwrite(x = targets,file = paste0(opt$output_dir,'/',clinbarcode,'.targets.csv'))
 
 
 
 # for compatibility with CNVkit.
 # cnr:  chromosome      start   end     gene    depth   log2    weight ()
-cnr <- targets[,.(chromosome=as.character(chromosome),start,end,gene,
+cnr <- targets[!is.na(log2),.(chromosome=as.character(chromosome),start,end,gene,
                   depth=round(count/width*200,3),log2,weight=1,
                gc,count,label)][gene=='',gene:='-']
 
@@ -687,9 +679,10 @@ fwrite(x = seg,file = paste0(opt$output_dir,'/',clinbarcode,'_dnacopy.seg'),sep 
 
 
 # Count file output ------------------------------------------------------------
-# (not overwrite)
+# (not overwrite, not if input was counts.RDS)
 if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.*counts.RDS')))
-   saveRDS(counts,paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS'))
+    if (!str_detect(opt$input_bam,'counts.RDS'))
+        saveRDS(counts,paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS'))
 
 
 # Save workspace ------------------------------------------------------------
@@ -715,6 +708,7 @@ if (T) {
     
     size <- 1; if (wgs) size <- 2
     
+    if (wgs) targets$label <- NA
     
     if (snp_allele_ratio) { 
         

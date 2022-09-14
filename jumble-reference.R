@@ -1,22 +1,23 @@
 # Markus Mayrhofer 2022
 # Dependencies ------------------------------------------------------------
-suppressPackageStartupMessages(library(optparse))
-suppressPackageStartupMessages(library(data.table))
-suppressPackageStartupMessages(library(stringr))
-suppressPackageStartupMessages(library(GenomicRanges))
-suppressPackageStartupMessages(library(org.Hs.eg.db))
-suppressPackageStartupMessages(library(TxDb.Hsapiens.UCSC.hg19.knownGene))
-suppressPackageStartupMessages(library(csaw))
-suppressPackageStartupMessages(library(BSgenome.Hsapiens.UCSC.hg19))
-suppressPackageStartupMessages(library(BSgenome))
-suppressPackageStartupMessages(library(Repitools))
-suppressPackageStartupMessages(library(ggplot2))
-suppressPackageStartupMessages(library(VariantAnnotation))
-suppressPackageStartupMessages(library(doParallel))
-suppressPackageStartupMessages(library(MASS))
-suppressPackageStartupMessages(library(rtracklayer))
-suppressPackageStartupMessages(library(rospca))
-
+{
+    suppressPackageStartupMessages(library(optparse))
+    suppressPackageStartupMessages(library(data.table))
+    suppressPackageStartupMessages(library(stringr))
+    suppressPackageStartupMessages(library(GenomicRanges))
+    suppressPackageStartupMessages(library(org.Hs.eg.db))
+    suppressPackageStartupMessages(library(TxDb.Hsapiens.UCSC.hg19.knownGene))
+    suppressPackageStartupMessages(library(csaw))
+    suppressPackageStartupMessages(library(BSgenome.Hsapiens.UCSC.hg19))
+    suppressPackageStartupMessages(library(BSgenome))
+    suppressPackageStartupMessages(library(Repitools))
+    suppressPackageStartupMessages(library(ggplot2))
+    suppressPackageStartupMessages(library(VariantAnnotation))
+    suppressPackageStartupMessages(library(doParallel))
+    suppressPackageStartupMessages(library(MASS))
+    suppressPackageStartupMessages(library(rtracklayer))
+    suppressPackageStartupMessages(library(rospca))
+}
 # Options ------------------------------------------------------------
 
 # Define options
@@ -42,26 +43,27 @@ files=dir(path = opt$input_folder,pattern = 'counts.RDS$',full.names = T)
 
 
 # read files
-allcounts <- NULL
-ntargets <- 0
-bed_files <- ''
-for (i in 1:length(files)) {
-    counts <- readRDS(files[i])
-    # counts$ranges <- counts$ranges[-removals$V1]
-    # counts$count <- counts$count[-removals$V1]
-    # counts$count_short <- counts$count_short[-removals$V1]
-    # saveRDS(counts,file = files[i])
-    if (is.null(counts$input_bam_file))
-        counts$input_bam_file <- files[i]
-    ntargets[i] <- length(counts$count)
-    if (!is.null(counts$target_bed_file)) 
-        bed_files[i] <- str_remove(string = counts$target_bed_file,pattern = '^.*/') else bed_files[i] <- ''
-    allcounts[[i]] <- counts
+{
+    allcounts <- NULL
+    ntargets <- 0
+    bed_files <- ''
+    for (i in 1:length(files)) {
+        counts <- readRDS(files[i])
+        # counts$ranges <- counts$ranges[-removals$V1]
+        # counts$count <- counts$count[-removals$V1]
+        # counts$count_short <- counts$count_short[-removals$V1]
+        # saveRDS(counts,file = files[i])
+        if (is.null(counts$input_bam_file))
+            counts$input_bam_file <- files[i]
+        ntargets[i] <- length(counts$count)
+        if (!is.null(counts$target_bed_file)) 
+            bed_files[i] <- str_remove(string = counts$target_bed_file,pattern = '^.*/') else bed_files[i] <- ''
+        allcounts[[i]] <- counts
+    }
+    
+    if (length(table(ntargets))>1) stop('Number of bins differs between samples.')
+    if (length(table(bed_files))>1) stop('BED file differs between samples.')
 }
-
-if (length(table(ntargets))>1) stop('Number of bins differs between samples.')
-if (length(table(bed_files))>1) stop('BED file differs between samples.')
-
 
 #removals <- targets[,max(bin),by='chromosome']
 
@@ -515,10 +517,10 @@ rm(targetlist)
 
 
 # Get problematic regions
-mySession = browserSession("UCSC")
-genome(mySession) <- "hg19"
-blacklist <- getTable(
-    ucscTableQuery(mySession, track="problematic", table="encBlacklist"))
+# mySession = browserSession("UCSC")
+# genome(mySession) <- "hg19"
+# blacklist <- getTable(
+#     ucscTableQuery(mySession, track="problematic", table="encBlacklist"))
 # not currently used.
 
 # Low coverage threshold
@@ -532,15 +534,30 @@ keep_targets <- targets[,median(count),by=bin][V1 < threshold]
 targets <- targets[bin %in% keep_targets$bin]
 
 # Mappability 0 removed
-targets <- targets[map>0]
+targets <- targets[is_target==F | map>0]
 
-# SNP and Median correct ------------------------------------------------------------
 
 min1 <- function(data) {
     data[data<1] <- 1
     data[is.na(data)] <- 1
     return(data)
 }
+
+# Quantify variability for "blacklisting" high-variability regions.
+if (wgs) {
+    # sdev along each sample
+    targets[,rollsd:= frollapply(log2(min1(count)), 10, sd, align = 'center',na.rm=T), by = sample]
+    # medain over samples, for each bin
+    targets[,rollsd_median:= median(rollsd), by = bin]
+    # standard deviation of that
+    sdev <- sd(targets$rollsd_median,na.rm = T)
+    # drop bins with more noise
+    targets <- targets[!rollsd_median > sdev*4]
+}
+
+# SNP and Median correct ------------------------------------------------------------
+
+
 
 # Basic logR, targets (with correction for SNPs if available)
 targets[,rawLR:=log2(min1(count+allele_count_correction))]
@@ -593,21 +610,21 @@ targets[,refmedian_short:=median(rawLR_short,na.rm=T),by=bin][,rawLR_short:=rawL
 
 # Impute missing ----------------------------------------------------------
 
-# If any missing, replace with random value near 0 (which is the median)
+# If any missing, replace with random value near 0 (which is already the median)
 targets[is.na(rawLR),rawLR:=rnorm(n = .N,mean = 0,sd = .1)]
 targets[is.na(rawLR_short),rawLR_short:=rnorm(n = .N,mean = 0,sd = .1)]
 
 
 # Matrix form ------------------------------------------------------------
 # separate for target and nontarget
-tmat <- dcast(data = targets[is_target==T,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
-tmat_short <- dcast(data = targets[is_target==T,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
+tmat <- dcast(data = targets[,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
+tmat_short <- dcast(data = targets[,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
 
 
-if (!wgs) {
-bgmat <- dcast(data = targets[is_target==F,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
-bgmat_short <- dcast(data = targets[is_target==F,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
-}
+# if (!wgs) {
+#     bgmat <- dcast(data = targets[is_target==F,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
+#     bgmat_short <- dcast(data = targets[is_target==F,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
+# }
 
 # PCA ------------------------------------------------------------
 
@@ -633,15 +650,15 @@ reference <- allcounts[[1]][c("target_bed_file","chromlength","ranges")]
 reference$date <- date()
 reference$samples <- unique(targets$sample)
 reference$targets <- target_template
-reference$keep <- keep_targets$bin
+reference$keep <- unique(targets$bin)
 
 reference$targets_ref <- tmat #tpca$x
 reference$targets_ref_short <- tmat_short #tpca_short$x
 
-if (!wgs) {
-    reference$background_ref <- bgmat #bgpca$x
-    reference$background_ref_short <- bgmat_short #bgpca_short$x
-}
+# if (!wgs) {
+#     reference$background_ref <- bgmat #bgpca$x
+#     reference$background_ref_short <- bgmat_short #bgpca_short$x
+# }
 
 reference$median <- targets[sample==sample[1]]$refmedian
 reference$median_short <- targets[sample==sample[1]]$refmedian_short
