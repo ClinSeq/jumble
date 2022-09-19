@@ -54,15 +54,10 @@ countsFromBam <- function(counts,bampath) {
     counts$date_count <- date()
     counts$input_bam_file <- bampath
     ranges <- counts$ranges
-    #background_ranges <- counts$background_ranges
     counts[['count']] <- bamCount(bampath, ranges, paired.end="midpoint",
                                          mapq=20, filteredFlag=1024, verbose=F)
     counts[['count_short']] <- bamCount(bampath, ranges, paired.end="midpoint",
                                          mapq=20, filteredFlag=1024, tlenFilter=c(0,150), verbose=F)
-    # counts[['background_count']] <- bamCount(bampath, background_ranges, paired.end="midpoint",
-    #                                          mapq=20, filteredFlag=1024, verbose=F)
-    # counts[['background_short']] <- bamCount(bampath, background_ranges, paired.end="midpoint",
-    #                                          mapq=20, filteredFlag=1024, tlenFilter=c(0,150), verbose=F)
     return(counts)
 }
 
@@ -83,36 +78,20 @@ if (str_detect(input,'.RDS$')) {
 
 targets <- reference$targets
 
-#background <- reference$background
-#background$gene='Background'
-
 name <- str_remove(opt$input_bam,'.*/')
 name <- str_remove(name,'\\.counts.RDS')
 
 targets$sample <- name
-#background$sample <- name
 
 
 # Add counts
 targets[,count:=counts$count]
-#sum_by_bg <- targets[,sum(count),by=background]
 
-#background[,count:=counts$background_count]
-#background[,count:=raw_count][sum_by_bg$background,count:=raw_count-sum_by_bg$V1]
-#background[count<0,count:=0]
 
 # same, short
 targets[,count_short:=counts$count_short]
-#sum_by_bg <- targets[,sum(count_short),by=background]
-#background[,count_short:=counts$background_short]
-#background[,count_short:=raw_short][sum_by_bg$background,count_short:=raw_short-sum_by_bg$V1]
-#background[count_short<0,count_short:=0]
 
 
-# keep only bins "ok" in this reference set
-targets <- targets[bin %in% reference$keep]
-targets[,bin:=1:.N]
-#background <- background[reference$keep_background]
 
 # For SNPs if present
 targets[,snps:=0]
@@ -336,21 +315,19 @@ targets[,rawLR:=rawLR-median(rawLR[is_backbone]),by='is_target']
 targets[,rawLR_short:=rawLR_short-median(rawLR_short[is_backbone]),by='is_target']
 
 # correct by reference median
-targets[,rawLR:=rawLR-reference$median]
-targets[,rawLR_short:=rawLR_short-reference$median_short]
+targets[reference$keep,rawLR:=rawLR-reference$median]
+targets[reference$keep,rawLR_short:=rawLR_short-reference$median_short]
 
 
-# background
-# background[,rawLR:=log2(count+1)]
-# background[,rawLR_short:=log2(count_short+1)]
-# 
-# background[,rawLR:=rawLR-median(rawLR[is_backbone])]
-# background[,rawLR_short:=rawLR_short-median(rawLR_short[is_backbone])]
-# 
-# background[,rawLR:=rawLR-reference$background_median]
-# background[,rawLR_short:=rawLR_short-reference$background_median_short]
 
 # Remove outliers 1 ------------------------------------------------------------
+
+gc_range <- quantile(targets$gc,c(.005,.995),na.rm=T)
+targets <- targets[is_target==F | (gc > gc_range[1] & gc < gc_range[2])]
+
+# keep only bins "ok" in this reference set
+targets <- targets[bin %in% reference$keep]
+
 
 deviation <- function(vector) {
     d <- abs(diff(vector))
@@ -360,20 +337,23 @@ deviation <- function(vector) {
 }
 
 targets[,dev:=deviation(rawLR),by=chromosome]
-targets[dev>3,rawLR:=NA]
+targets[dev<3][,rawLR:=NA]
 targets$dev <- NULL
 
+# remove the NA before creating a reference PCA:
+targets <- targets[!is.na(rawLR)]
 
 # PCA v1 ------------------------------------------------------------
 
-ix <- targets$is_target
+ix <- targets[is_target==T]$bin # the ontarget
 
-tpca <- as.data.table(prcomp(reference$targets_ref[ix,-1],center = F,scale. = F)$x)
-tpca_short <- as.data.table(prcomp(reference$targets_ref_short[ix,-1],center = F,scale. = F)$x)
+tpca <- as.data.table(prcomp(reference$targets_ref[bin %in% ix,-1],center = F,scale. = F)$x)
+tpca_short <- as.data.table(prcomp(reference$targets_ref_short[bin %in% ix,-1],center = F,scale. = F)$x)
 
 if (!wgs) {
-    bgpca <- as.data.table(prcomp(reference$targets_ref[!ix,-1],center = F,scale. = F)$x)
-    bgpca_short <- as.data.table(prcomp(reference$targets_ref_short[!ix,-1],center = F,scale. = F)$x)
+    ix <- targets[is_target==F]$bin # the offtarget
+    bgpca <- as.data.table(prcomp(reference$targets_ref[bin %in% ix,-1],center = F,scale. = F)$x)
+    bgpca_short <- as.data.table(prcomp(reference$targets_ref_short[bin %in% ix,-1],center = F,scale. = F)$x)
 }
 
 
@@ -467,7 +447,7 @@ if (!wgs) {
 
 # PCA v2 ------------------------------------------------------------
 
-tpca <- as.data.table(prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x)
+#tpca <- as.data.table(prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x)
 
 # ix <- targets$is_target
 # 
@@ -490,13 +470,13 @@ tpca <- as.data.table(prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x
 # Reference data correction v2 ------------------------------------------------------------
 
 
-targets[,log2x:=rawLR]
+targets[,log2x:=as.numeric(NA)][is_target==T,log2x:=rawLR]
 
-temp <- cbind(data.table(
-    lr=targets$rawLR),
-    gc=targets$gc,
-    tpca)
-targets[,log2x:=jcorrect(temp,targets$is_backbone)]
+# temp <- cbind(data.table(
+#     lr=targets$rawLR),
+#     gc=targets$gc,
+#     tpca)
+# targets[,log2x:=jcorrect(temp,targets$is_backbone)]
 
 
 # flatten <- function(vector) return(vector-runmed(vector,k=11))
@@ -575,20 +555,17 @@ deviation <- function(vector) {
 }
 
 targets[,dev:=deviation(log2),by=chromosome]
-targets[dev>1,log2:=NA]
-targets[,dev:=deviation(log2_short),by=chromosome]
-targets[dev>1,log2_short:=NA]
-targets$dev <- NULL
-# targets[count==0,log2:=NA]
-# targets[count_short==0,log2_short:=NA]
+targets <- targets[dev<.5]
+
 
 # Segmentation ------------------------------------------------------------
 
 
 getsegs <- function(targets, logratio) {
+    
     segments <- segmentByCBS(y=logratio,avg='median',
                              chromosome=targets$chromosome,
-                             alpha = 0.01,undo=1)
+                             alpha = 0.02,undo=1)
     segments <- as.data.table(segments)[!is.na(chromosome),-1]
     segments[,start_pos:=targets$start[ceiling(start)]]
     segments[,end_pos:=targets$end[floor(end)]]
@@ -596,19 +573,30 @@ getsegs <- function(targets, logratio) {
     
     for (i in 1:nrow(segments)) {
         ix <- ceiling(segments[i]$start):floor(segments[i]$end)
-        segments[i,mean:=peakx(logratio[ix])] # <----------------- here, value per segment is set
+        segments[i,mean:=median(logratio[ix],na.rm = T)] # <----------------- here, value per segment is set
         genes <- paste0(unique(targets[ix][gene!='']$gene),collapse = ',')
         genes <- unique(strsplit(genes,',')[[1]])
         genes <- genes[!genes %in% c('','Background')]
         if (length(genes)>0) segments[i]$genes <- paste(genes,collapse = ', ')
+        
+        # adjust segment start and end to bin number, rather than bin order
+        ix <- ceiling(segments[i]$start)
+        segments[i,start:=targets[ix]$bin]
+        ix <- floor(segments[i]$end)
+        segments[i,end:=targets[ix]$bin]
     }
+    
+    
+    
+    
     return(segments)
 }
 
 
+
 # Do the segmentation
 targets[,chromosome:=str_replace(chromosome,'Y','24')][,chromosome:=str_replace(chromosome,'X','23')][,chromosome:=as.numeric(chromosome)]
-segments <- getsegs(targets, targets$log2)
+segments <- getsegs(copy(targets), targets$log2)
 targets[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 segments[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 
@@ -703,8 +691,8 @@ if (T) {
     
     
     p <- NULL
-    targets[,smooth_log2:=runmed(log2,k=51),by=chromosome]
-    ylims <- c(.4,2)
+    targets[,smooth_log2:=runmed(log2,k=21),by=chromosome]
+    ylims <- c(.4,max(2,max(2^targets$smooth_log2)))
     
     size <- 1; if (wgs) size <- 2
     
@@ -720,7 +708,7 @@ if (T) {
         snp_table <- snp_table[type!='other'][allele_ratio_use < .99][allele_ratio_use > .01]
         snp_table <- snp_table[DP > median(DP)/3][DP < median(DP)*3]
         
-        targets[,allele_ratio:=as.double(NA)][snp_table$bin,allele_ratio:=snp_table$allele_ratio_use]
+        targets[,allele_ratio:=as.double(NA)][match(snp_table$bin,bin),allele_ratio:=snp_table$allele_ratio_use]
         targets[,maf:=abs(allele_ratio-.5)+.5]
         targets[!is.na(maf),maf:=runmed(maf,9)]
         # snp (grid) smooth-to-allele-ratio plot
