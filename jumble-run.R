@@ -690,13 +690,25 @@ noise <- function(data) {
 if (T) {
     
     
+    
     p <- NULL
     targets[,smooth_log2:=runmed(log2,k=21),by=chromosome]
     ylims <- c(.4,max(2,max(2^targets$smooth_log2)))
     
     size <- 1; if (wgs) size <- 2
     
-    if (wgs) targets$label <- NA
+    if (wgs) {
+        targets$`label` <- NA
+    } else {
+        label_genes <- c('AR','ATM','BRCA2','PTEN','RB1','ERG','CDK12','TMPRSS2')
+        targets[,`label`:=as.character(NA)]
+        for (g in label_genes) {
+            targets[str_detect(gene,paste0('^',g,'$')),`label`:=g]
+            targets[str_detect(gene,paste0(',',g,'$')),`label`:=g]
+            targets[str_detect(gene,paste0('^',g,',')),`label`:=g]
+            targets[str_detect(gene,paste0(',',g,',')),`label`:=g]
+        }
+    }
     
     if (snp_allele_ratio) { 
         

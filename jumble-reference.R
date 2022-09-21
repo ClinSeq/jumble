@@ -7,7 +7,7 @@
     suppressPackageStartupMessages(library(GenomicRanges))
     suppressPackageStartupMessages(library(org.Hs.eg.db))
     suppressPackageStartupMessages(library(TxDb.Hsapiens.UCSC.hg19.knownGene))
-    suppressPackageStartupMessages(library(csaw))
+    #suppressPackageStartupMessages(library(csaw))
     suppressPackageStartupMessages(library(BSgenome.Hsapiens.UCSC.hg19))
     suppressPackageStartupMessages(library(BSgenome))
     suppressPackageStartupMessages(library(Repitools))
@@ -41,7 +41,6 @@ if (!is.null(opt$cores)) registerDoParallel(cores=as.integer(opt$cores))
 
 files=dir(path = opt$input_folder,pattern = 'counts.RDS$',full.names = T)
 
-
 # read files
 {
     allcounts <- NULL
@@ -65,7 +64,8 @@ files=dir(path = opt$input_folder,pattern = 'counts.RDS$',full.names = T)
     if (length(table(bed_files))>1) stop('BED file differs between samples.')
 }
 
-#removals <- targets[,max(bin),by='chromosome']
+wgs <- F
+if (is.null(allcounts[[1]]$target_bed_file)) wgs <- T
 
 # Make tables ------------------------------------------------------------
 
@@ -96,31 +96,126 @@ targets[width!=min(width),is_target:=F]
 
 # Gene annotation ------------------------------------------------------------
 
+mygenes <- c("ASXL1", "JAK2", "FANCA", "SDHB", "SDHC", "BMPR1A", "SDHD", 
+  "POT1", "FANCM", "EPCAM", "GREM1", "PRSS1", "RECQL", "PHOX2B", 
+  "FH", "EP300", "PAX5", "PDCD1", "CD274", "JAK1", "MLH3", "NKX3-1", 
+  "SPEN", "CDC27", "RAD52", "CHD1", "EZH2", "MED12", "PIK3CG", 
+  "PMS1", "SOX9", "HLA-C", "CDKN2C", "AR", "MSH6", "FGFR2", "MSH2", 
+  "PALB2", "MTOR", "ATR", "BAP1", "CHEK2", "CDKN1B", "CTNNB1", 
+  "DICER1", "ERCC2", "FBXW7", "GNAS", "VHL", "KEAP1", "ARID1A", 
+  "KDM6A", "KMT2D", "MAP3K1", "MEN1", "NBN", "PMS2", "PRKAR1A", 
+  "SMARCA4", "ARAF", "ATRX", "BARD1", "KMT2C", "RNF43", "FOXA1", 
+  "MAP2K4", "PIK3R1", "AXIN2", "BRIP1", "CDK12", "MUTYH", "NCOR1", 
+  "NF2", "SMAD2", "CTCF", "CYLD", "GATA3", "NOTCH1", "TGFBR2", 
+  "ZFHX3", "B2M", "FAT1", "TBX3", "CREBBP", "MITF", "PBRM1", "SETD2", 
+  "WT1", "IL6ST", "ARID2", "EPHA3", "RAD51D", "CIC", "KDM5C", "MGA", 
+  "MRE11", "MSH3", "NOTCH2", "PPM1D", "SDHA", "CASP8", "KMT2A", 
+  "RAD50", "RAD51C", "STAG2", "POLQ", "CHD4", "LZTR1", "AXIN1", 
+  "FUBP1", "HLA-A", "KMT2B", "PLCG1", "PSIP1", "TCF12", "TLR4", 
+  "USP9X", "ERCC4", "FANCC", "NTRK1", "ASXL2", "LATS1", "DDX3X", 
+  "ZMYM2", "BLM", "TAF1", "GNA13", "GPS2", "HLA-B", "RASA1", "SMC3", 
+  "TRAF3", "ACVR1B", "GABRA6", "IRF2", "KEL", "CHEK1", "RAD51B", 
+  "NTRK3", "ARID5B", "CSDE1", "CYSLTR2", "ELF3", "H3F3C", "LATS2", 
+  "ARHGAP35", "ALB", "HIST1H1E", "SMC1A", "SPTA1", "CD70", "BTG2", 
+  "ATM", "BRCA1", "BRCA2", "PTEN", "NF1", "PDGFRA", "APC", "MET", 
+  "PIK3CA", "RET", "PTCH1", "ALK", "CDH1", "ERBB2", "RB1", "SMAD4", 
+  "TP53", "TSC1", "TSC2", "ESR1", "EGFR", "MLH1", "SMARCB1", "MAP2K1", 
+  "FGFR1", "RAD51", "CDKN2A", "KIT", "FGFR3", "STK11", "AMER1", 
+  "POLD1", "RBM10", "TCF7L2", "RAD21", "RECQL4", "CHD3", "SMARCA1", 
+  "COL5A1", "ZMYM3", "CDKN1A", "HGF", "RPL5", "TBL1XR1", "PLCB4", 
+  "ERCC3", "GNA11", "GNAQ", "U2AF1", "IDH2", "ERBB3", "SPOP", "ERBB4", 
+  "PIK3CB", "MAX", "MYC", "CCND1", "STAT3", "ARID1B", "NFE2L2", 
+  "PPP2R1A", "RAF1", "BCOR", "JUN", "KDR", "MAPK1", "MYCN", "RAC1", 
+  "FGFR4", "SOS1", "ACVR1", "PPP6C", "RHOA", "CBL", "ERG", "HIST1H3B", 
+  "SMAD3", "EPAS1", "GATA2", "SMO", "AKT2", "PREX2", "RHEB", "RIT1", 
+  "BCL6", "CDK6", "DAXX", "FOXL2", "HIST1H3C", "SOCS1", "RRAS2", 
+  "RXRA", "SOX17", "BCL2L11", "EIF1AX", "HIST1H1C", "CCND3", "IRF4", 
+  "MAP2K2", "PTPRS", "RICTOR", "TP63", "AKT1", "BRAF", "HRAS", 
+  "KRAS", "IDH1", "NRAS", "AKT3", "BCL10", "FOXO1", "MAP3K13", 
+  "PTPRT", "SUZ12", "AXL", "IGF1R", "KLF4", "SDHAF2", "SMARCD1", 
+  "TRAF7", "DIS3", "DNAJB1", "EIF4A2", "IRS2", "MYOD1", "PARP1", 
+  "RPTOR", "ERRFI1", "GLI1", "GSK3B", "LYN", "PIK3CD", "PRKCI", 
+  "CTLA4", "PAK7", "ANKRD11", "DNMT1", "DNMT3B", "FAM58A", "HIST1H3H", 
+  "KNSTRN", "MDC1", "MST1", "NCOA3", "PDPK1", "PLK2", "PPP4R2", 
+  "PRDM14", "RPS6KA4", "SESN2", "SPRED1", "STK19", "TGFBR1", "POLE", 
+  "CUL3", "PIK3R2", "FOXP1", "H3F3A", "PIM1", "PTPRD", "EPHB1", 
+  "GTF2I", "BRD4", "CRLF2", "ETV6", "TCF3", "TET1", "TNFRSF14", 
+  "EPHA7", "MEF2B", "RPL22", "PGR", "INPPL1", "NUP93", "ACVR2A", 
+  "TCEB1", "ELOC", "HNF1A", "CDK4", "SF3B1", "XPO1", "CBFB", "PTPN11", 
+  "CARD11", "RUNX1", "NSD1", "BCL2", "CD79B", "CEBPA", "IKZF1", 
+  "MYD88", "RARA", "TET2", "WHSC1", "NSD2", "SRSF2", "FLT3", "DNMT3A", 
+  "EWSR1", "GPR126", "PDGFRB", "ROS1", "TERT", "TMPRSS2", "COMT", 
+  "CYP2D6", "DPYD", "HOXB13", "HSD3B1", "NQO1", "TPMT", "UGT1A1", 
+  "APOBEC3B", "AR_ENHANCER", "CCNE1", "CDKN2B", "CSMD1", "DROSHA", 
+  "FANCD2", "FLT4", "GPC3", "INTS4", "LRP1B", "MCL1", "MDM2", "MDM4", 
+  "MYCL", "NKX2", "NKX3", "PARK2", "PDE4D", "SKP2", "SOX2", "SUFU", 
+  "WWOX", "ZBTB16", "MRE11A", "RAD54L", "ETV1")
+
+
+# 
+# d <- detailRanges(ucsc_ranges, orgdb=org.Hs.eg.db,
+#                   txdb=TxDb.Hsapiens.UCSC.hg19.knownGene)
+# 
+# # targets can overlap multiple genes:
+# t <- strsplit(d$overlap,',')
+# t <- lapply(t,function(t) str_remove(t,pattern = ':.*'))
+# t <- lapply(t,function(t) paste0('<',t,'>'))
+# t <- lapply(t,function(t) paste0(t,collapse = ','))
+# 
+# targets[,gene:=''][targets$is_target==T,gene:=unlist(t)][gene=='<>',gene:='']
+# targets[targets$is_target==F,gene:='Background']
+
+mart <- fread('~/Analysis/2022-09_check_genes/mart_export.txt')
+mart <- mart[`Gene type`=='protein_coding']
+mart <- mart[`Chromosome/scaffold name` %in% c(1:22,'X','Y')]
+
+# If targeted, will use only the pre-listed genes:
+if (!wgs) mart <- mart[`Gene name` %in% mygenes | `Gene Synonym` %in% mygenes]
+
+mart <- mart[,.(ensembl_id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
+                start=`Gene start (bp)`,end=`Gene end (bp)`,
+                symbol=`Gene name`)]#,synonym=`Gene Synonym`
+mart <- unique(mart)
+
+# Add T_E_intergenic and AR_enhancer to gene table
+#mart[symbol %in% c('TMPRSS2','ERG')]
+te_int <- data.table(ensembl_id=NA,chromosome=21,start=40033704,end=42836478,symbol='T_E_intergenic')
+mart <- rbind(mart,te_int)
+
+# Add AR enhancer to gene table
+#ggplot(targets[chromosome=='X' & is_target & start>60e6 & end<70e6]) + geom_point(aes(x=start,y=0,col=gene))
+#targets[chromosome=='X' & is_target & start>65.5e6 & end<66.5e6]
+ar_enh <- data.table(ensembl_id=NA,chromosome='X',start=66100404,end=66160987,symbol='AR_enhancer')
+mart <- rbind(mart,ar_enh)
+
+generanges <- makeGRangesFromDataFrame(mart)
+binranges <- counts$ranges
+
+# Compute overlap table
+gene_overlap <- as.data.table(findOverlaps(binranges,generanges))
+# Remove background matches
+gene_overlap <- gene_overlap[queryHits %in% which(targets$is_target)][,bin:=queryHits][,gene:=subjectHits]
+# Add symbol to overlap table
+gene_overlap[,symbol:=mart[subjectHits]$symbol]
+
+targets[,gene:='']
+for (i in unique(gene_overlap$queryHits)) {
+    targets[i,gene:=paste0(gene_overlap[queryHits==i]$symbol,collapse = ',')]
+}
+
+
+# # label some genes
+# label_genes <- c('AR','ATM','BRCA2','PTEN','RB1','ERG','CDK12','TMPRSS2')
+# targets[,label:=as.character(NA)]
+# for (g in label_genes) targets[str_detect(gene,paste0('<',g,'>')),label:=g]
+# 
+# # remove the <>
+# targets[,gene:=str_remove_all(gene,'[<>]')]
+
+# GC content ------------------------------------------------------------
 
 ucsc_ranges <- counts$ranges[targets$is_target==T]
 seqlevelsStyle(ucsc_ranges) <- "UCSC"
-
-d <- detailRanges(ucsc_ranges, orgdb=org.Hs.eg.db,
-                  txdb=TxDb.Hsapiens.UCSC.hg19.knownGene)
-
-# targets can overlap multiple genes:
-t <- strsplit(d$overlap,',')
-t <- lapply(t,function(t) str_remove(t,pattern = ':.*'))
-t <- lapply(t,function(t) paste0('<',t,'>'))
-t <- lapply(t,function(t) paste0(t,collapse = ','))
-
-targets[,gene:=''][targets$is_target==T,gene:=unlist(t)][gene=='<>',gene:='']
-targets[targets$is_target==F,gene:='Background']
-
-# label some genes
-label_genes <- c('AR','ATM','BRCA2','PTEN','RB1','ERG','CDK12','TMPRSS2')
-targets[,label:=as.character(NA)]
-for (g in label_genes) targets[str_detect(gene,paste0('<',g,'>')),label:=g]
-
-# remove the <>
-targets[,gene:=str_remove_all(gene,'[<>]')]
-
-# GC content ------------------------------------------------------------
 
 targets[,gc:=as.double(NA)]
 targets[is_target==T]$gc <- gcContentCalc(ucsc_ranges , organism=Hsapiens)
@@ -136,8 +231,6 @@ targets[is_target==T]$map <- mappabilityCalc(ucsc_ranges , organism=Hsapiens)
 set.seed(25) # <------------------ To be reproducible.
 max_backbone_in_gene <- 20 #  <--- applies to targeted
 
-wgs <- F
-if (is.null(allcounts[[1]]$target_bed_file)) wgs <- T
 
 if (wgs) targets[,is_backbone:=chromosome %in% 1:22]
 
@@ -468,24 +561,18 @@ if (length(vcf_files) > 0) {
 # Iterate samples ------------------------------------------------------------
 
 targetlist <- NULL
-#backgroundlist <- NULL
 for (i in 1:length(allcounts)) {
     
     counts <- allcounts[[i]]
     targets <- copy(target_template)
     name <- basename(counts$input_bam_file)
     targets$sample <- name
-    #background <- copy(background_template)
-    #background$sample <- counts$input_bam_file
+
     
     # Add counts
     targets[,count:=counts$count]
-    
-    #background[,count:=counts$background_count]
-    
     targets[,count_short:=counts$count_short]
-    #background[,count_short:=counts$background_short]
-    
+
     targets[,snps:=0]
     targets[,allele_count_correction:=0]
     
@@ -515,13 +602,6 @@ rm(targetlist)
 
 # Drop some bins ------------------------------------------------------------
 
-
-# Get problematic regions
-# mySession = browserSession("UCSC")
-# genome(mySession) <- "hg19"
-# blacklist <- getTable(
-#     ucscTableQuery(mySession, track="problematic", table="encBlacklist"))
-# not currently used.
 
 # Low coverage threshold
 threshold <- median(targets$count) * 0.05
@@ -567,9 +647,6 @@ targets[,rawLR_short:=log2(min1(count_short+allele_count_correction*(count_short
 targets[,rawLR:=rawLR-median(rawLR[is_backbone]),by=c('sample','is_target')]
 targets[,rawLR_short:=rawLR_short-median(rawLR_short[is_backbone]),by=c('sample','is_target')]
 
-# median correct background
-#background[,rawLR:=log2(count+1)][,rawLR:=rawLR-median(rawLR),by=sample]
-#background[,rawLR_short:=log2(count_short+1)][,rawLR_short:=rawLR_short-median(rawLR_short),by=sample]
 
 
 # X-Y chromosome correct ------------------------------------------------------------
@@ -616,33 +693,11 @@ targets[is.na(rawLR_short),rawLR_short:=rnorm(n = .N,mean = 0,sd = .1)]
 
 
 # Matrix form ------------------------------------------------------------
-# separate for target and nontarget
 tmat <- dcast(data = targets[,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
 tmat_short <- dcast(data = targets[,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
 
 
-# if (!wgs) {
-#     bgmat <- dcast(data = targets[is_target==F,.(bin,sample,rawLR)],formula = bin ~ sample, value.var = 'rawLR')
-#     bgmat_short <- dcast(data = targets[is_target==F,.(bin,sample,rawLR_short)],formula = bin ~ sample, value.var = 'rawLR_short')
-# }
 
-# PCA ------------------------------------------------------------
-
-
-# pca <- robpca(tmat[,-1], k = ncol(tmat)-1, kmax = 10, alpha = 0.75, h = NULL, mcd = FALSE,
-#         ndir = 1000, skew = FALSE)
-# pca_short <- robpca(tmat_short[,-1], k = ncol(tmat_short)-1, kmax = 10, alpha = 0.75, h = NULL, mcd = FALSE,
-#               ndir = 1000, skew = FALSE)
-
-# not retained anymore, done in _run instead
-#tpca <- prcomp((tmat[,-1]),center = F,scale. = F)
-#tpca_short <- prcomp((tmat_short[,-1]),center = F,scale. = F)
-
-
-# if (!wgs) {
-#     bgpca <- prcomp((bgmat[,-1]),center = F,scale. = F)
-#     bgpca_short <- prcomp((bgmat_short[,-1]),center = F,scale. = F)
-# }
 
 # Reference object ------------------------------------------------------------
 if (wgs) allcounts[[1]]$target_bed_file <- 'wgs'
@@ -655,10 +710,7 @@ reference$keep <- unique(targets$bin)
 reference$targets_ref <- tmat #tpca$x
 reference$targets_ref_short <- tmat_short #tpca_short$x
 
-# if (!wgs) {
-#     reference$background_ref <- bgmat #bgpca$x
-#     reference$background_ref_short <- bgmat_short #bgpca_short$x
-# }
+
 
 reference$median <- targets[sample==sample[1]]$refmedian
 reference$median_short <- targets[sample==sample[1]]$refmedian_short
@@ -675,12 +727,4 @@ if (is.null(name)) name <- 'jumble.WGS'
 saveRDS(reference,paste0(opt$output_folder,'/',
                          str_remove(name,'.*/'),
                          '.reference.RDS'))
-
-# Plot ------------------------------------------------------------
-
-# pdf(reference,paste0(opt$output_folder,'/',
-#                          str_remove(reference$target_bed_file,'.*/'),
-#                          '.reference.pdf'))
-
-#ggplot(as.data.table(tpca$rotation[,1:2])) + geom_point(aes(x=PC1,y=PC2))
 
