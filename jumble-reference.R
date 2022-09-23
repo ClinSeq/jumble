@@ -243,12 +243,10 @@ if (!wgs) {
         targets[ix,is_backbone:=T]
     }
 }
-#background[,is_backbone:=chromosome %in% 1:22]
 
 
 # Templates ready ------------------------------------------------------------
 target_template <- copy(targets)
-#background_template <- copy(background)
 
 
 # Default SNP allele bias

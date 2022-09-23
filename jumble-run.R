@@ -322,7 +322,11 @@ targets[reference$keep,rawLR_short:=rawLR_short-reference$median_short]
 
 # Remove outliers 1 ------------------------------------------------------------
 
-gc_range <- quantile(targets$gc,c(.005,.995),na.rm=T)
+
+gc_range <- quantile(targets$gc,c(.02,.99),na.rm=T)
+targets <- targets[is_target==F | (gc > gc_range[1] & gc < gc_range[2])]
+
+gc_range <- c(.3,.6)
 targets <- targets[is_target==F | (gc > gc_range[1] & gc < gc_range[2])]
 
 # keep only bins "ok" in this reference set
@@ -342,6 +346,14 @@ targets$dev <- NULL
 
 # remove the NA before creating a reference PCA:
 targets <- targets[!is.na(rawLR)]
+
+# pca <- as.data.table(prcomp(reference$targets_ref[bin %in% targets$bin,-1],center = F,scale. = F)$x)
+# n_pcs <- min(ncol(pca,5))
+# for (i in 1:n_pcs) {
+#     pc_range <- quantile(x[,i],c(.005,.995),na.rm=T)
+# }
+
+
 
 # PCA v1 ------------------------------------------------------------
 
@@ -447,30 +459,47 @@ if (!wgs) {
 
 # PCA v2 ------------------------------------------------------------
 
-#tpca <- as.data.table(prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x)
-
-# ix <- targets$is_target
+# ix <- targets[is_target==T & gc>.3 & gc<.6]$bin # the ontarget and good enough
 # 
-# tpca <- robpca(reference$targets_ref[ix,-1], k = ncol(reference$targets_ref)-1, kmax = 20, 
-#                alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
-# tpca_short <- robpca(reference$targets_ref_short[,-1], k = ncol(reference$targets_ref_short)-1, kmax = 20, 
-#                alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+# tpca <- as.data.table(prcomp(reference$targets_ref[bin %in% ix,-1],center = F,scale. = F)$x)
+# tpca_short <- as.data.table(prcomp(reference$targets_ref_short[bin %in% ix,-1],center = F,scale. = F)$x)
 # 
 # if (!wgs) {
-#     bgpca <- robpca(reference$background_ref[,-1], 
-#                     k = ncol(reference$background_ref)-1, kmax = 20, 
-#                    alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
-#     bgpca_short <- robpca(reference$background_ref_short[,-1], 
-#                           k = ncol(reference$background_ref_short)-1, kmax = 20, 
-#                          alpha = 0.75, h = NULL, mcd = FALSE,ndir = 1000, skew = FALSE)$scores
+#     ix <- targets[is_target==F]$bin # the offtarget
+#     bgpca <- as.data.table(prcomp(reference$targets_ref[bin %in% ix,-1],center = F,scale. = F)$x)
+#     bgpca_short <- as.data.table(prcomp(reference$targets_ref_short[bin %in% ix,-1],center = F,scale. = F)$x)
 # }
+# 
 
 
 
 # Reference data correction v2 ------------------------------------------------------------
 
 
-targets[,log2x:=as.numeric(NA)][is_target==T,log2x:=rawLR]
+targets[,log2x:=log2_short]
+# 
+# 
+# # standard
+# ix <- targets$is_target==T & targets$gc>.3 & targets$gc<.6
+# temp <- cbind(data.table(
+#     lr=targets[ix]$rawLR),
+#     gc=targets[ix]$gc,
+#     tpca)
+# targets[ix,log2x:=jcorrect(temp,targets[ix]$is_backbone)]
+# 
+# 
+# if (!wgs) {
+#     ix <- targets$is_target==F
+#     # standard bg
+#     temp <- cbind(data.table(
+#         lr=targets[ix]$rawLR),
+#         gc=targets[ix]$gc,
+#         bgpca)
+#     targets[ix,log2x:=jcorrect(temp,targets[ix]$is_backbone)]
+#     
+# }
+# 
+
 
 # temp <- cbind(data.table(
 #     lr=targets$rawLR),
@@ -650,7 +679,7 @@ clinbarcode <- str_remove(name, "_nodups.bam")
 # cnr:  chromosome      start   end     gene    depth   log2    weight ()
 cnr <- targets[!is.na(log2),.(chromosome=as.character(chromosome),start,end,gene,
                   depth=round(count/width*200,3),log2,weight=1,
-               gc,count,label)][gene=='',gene:='-']
+               gc,count)][gene=='',gene:='-']
 
 fwrite(x = cnr,file = paste0(opt$output_dir,'/',clinbarcode,'.cnr'),sep = '\t')
 
@@ -899,15 +928,15 @@ if (T) {
     for (i in 1:length(p)) p[[i]] <- p[[i]] + guides(fill=guide_legend(override.aes=list(shape=21,size=3)))
     
     stats <- paste0('Coverage: ',
-                    paste(round(quantile(targets[is_backbone==T,count*200/width],c(.025,.975))),collapse = '-'),
+                    paste(round(quantile(targets[is_backbone==T & is_target==T]$count,c(.025,.975))),collapse = '-'),
                     ', Noise: ',
                     noise(targets[is_target==T]$log2),'% / ', noise(targets[is_target==F]$log2),'%'
     )
     
     if (wgs) stats <- paste0('Coverage: ',
-                             paste(round(quantile(targets[is_backbone==T,count*200/width],c(.025,.975))),collapse = '-'),
+                             paste(round(quantile(targets[is_backbone==T]$count,c(.025,.975))),collapse = '-'),
                              ', Noise: ',
-                             noise(targets[is_target==T]$log2),'%'
+                             noise(targets$log2),'%'
     )
     
     pa <- plot_annotation(
