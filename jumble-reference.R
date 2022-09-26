@@ -169,7 +169,7 @@ mart <- fread('~/Analysis/2022-09_check_genes/mart_export.txt')
 mart <- mart[`Gene type`=='protein_coding']
 mart <- mart[`Chromosome/scaffold name` %in% c(1:22,'X','Y')]
 
-# If targeted, will use only the pre-listed genes:
+# If targeted seq, will use only the pre-listed genes:
 if (!wgs) mart <- mart[`Gene name` %in% mygenes | `Gene Synonym` %in% mygenes]
 
 mart <- mart[,.(ensembl_id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,

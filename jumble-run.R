@@ -802,7 +802,7 @@ if (T) {
               axis.ticks = element_line()) 
     
     # depth by pos 
-    limits <- c(5e2,5e3); if (wgs) limits <- c(100,1e3)
+    limits <- c(1e2,1e4); if (wgs) limits <- c(10,1000)
     p$pos_rawdepth <- ggplot(targets) + xlab('Order of genomic position') + ylab('Read count') +
         geom_point(data=targets[is_target==T],mapping = aes(x=gpos,y=count),fill='#60606050',col='#20202050',size=1,shape=21) +
         geom_point(data=targets[!is.na(label)],mapping = aes(x=gpos,y=count,fill=label),shape=21,col='#00000050',size=size) +
@@ -905,8 +905,7 @@ if (T) {
             scale_fill_hue() + ylim(0:1) + scale_x_log10(limits=c(m/3,m*3))
     }
     # depth by order 
-    limits <- c(1e2,1e4); if (wgs) limits <- c(1e2,1e4)
-    p$order_rawdepth <- ggplot(targets) + xlab('Order of genomic position') + ylab('Read count') +
+    p$order_rawdepth <- ggplot(targets) + xlab('Order of genomic position') + ylab('Frag count') +
         geom_point(data=targets[is_target==T],mapping = aes(x=bin,y=count),fill='#60606050',col='#20202050',size=1,shape=21) +
         geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=count,fill=label),shape=21,col='#00000050',size=size) +
         scale_fill_hue() + scale_y_log10(limits=limits) +
@@ -918,7 +917,7 @@ if (T) {
               axis.line = element_line(),
               axis.ticks = element_line()) 
     # depth by GC 
-    p$gc_rawdepth <- ggplot(targets) + xlab('Target GC content') + ylab('Read count') +
+    p$gc_rawdepth <- ggplot(targets) + xlab('Target GC content') + ylab('Frag count') +
         geom_point(data=targets[is_target==T],mapping = aes(x=gc,y=count),fill='#60606040',col='#20202040',shape=21,size=1) + # 
         geom_smooth(data=targets[!is.na(label) & !is.na(log2)],
                     mapping = aes(x=gc,y=count,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
@@ -933,7 +932,7 @@ if (T) {
                     noise(targets[is_target==T]$log2),'% / ', noise(targets[is_target==F]$log2),'%'
     )
     
-    if (wgs) stats <- paste0('Coverage: ',
+    if (wgs) stats <- paste0('Fragments per target: ',
                              paste(round(quantile(targets[is_backbone==T]$count,c(.025,.975))),collapse = '-'),
                              ', Noise: ',
                              noise(targets$log2),'%'
