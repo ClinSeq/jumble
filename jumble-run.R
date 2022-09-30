@@ -1,5 +1,7 @@
 #!/usr/bin/env Rscript
 
+jumble_version <- '0.2.0'
+
 # Markus Mayrhofer 2022
 # Dependencies ------------------------------------------------------------
 {
@@ -16,8 +18,8 @@
     suppressPackageStartupMessages(library(patchwork))
     suppressPackageStartupMessages(library(BSgenome.Hsapiens.UCSC.hg19))
     suppressPackageStartupMessages(library(BSgenome))
-    suppressPackageStartupMessages(library(Repitools))
-    suppressPackageStartupMessages(library(rospca))
+    #suppressPackageStartupMessages(library(Repitools))
+    #suppressPackageStartupMessages(library(rospca))
 }
 
 
@@ -86,7 +88,7 @@ targets$sample <- name
 
 # Add counts
 targets[,count:=counts$count]
-
+alltargetcount <- targets[is_target==T & bin %in% reference$keep]$count
 
 # same, short
 targets[,count_short:=counts$count_short]
@@ -322,11 +324,13 @@ targets[reference$keep,rawLR_short:=rawLR_short-reference$median_short]
 
 # Remove outliers 1 ------------------------------------------------------------
 
+alltargets <- copy(targets) # to get the full set back later
 
-gc_range <- quantile(targets$gc,c(.02,.99),na.rm=T)
+gc_range <- quantile(targets$gc,c(.01,.99),na.rm=T)
 targets <- targets[is_target==F | (gc > gc_range[1] & gc < gc_range[2])]
 
-gc_range <- c(.3,.6)
+gc_range <- c(.25,.65)
+if (wgs) gc_range <- c(.25,.75)
 targets <- targets[is_target==F | (gc > gc_range[1] & gc < gc_range[2])]
 
 # keep only bins "ok" in this reference set
@@ -592,9 +596,15 @@ targets <- targets[dev<.5]
 
 getsegs <- function(targets, logratio) {
     
+    alpha <- .01
+    if (wgs) { 
+        alpha <- 1e-5
+        #if (median(targets$end-targets$start) >= 5000) alpha <- 1e-5
+    }
+    
     segments <- segmentByCBS(y=logratio,avg='median',
                              chromosome=targets$chromosome,
-                             alpha = 0.02,undo=1)
+                             alpha = alpha,undo=1)
     segments <- as.data.table(segments)[!is.na(chromosome),-1]
     segments[,start_pos:=targets$start[ceiling(start)]]
     segments[,end_pos:=targets$end[floor(end)]]
@@ -664,6 +674,7 @@ suppressWarnings(
 
 # Table output ------------------------------------------------------------
 
+targets <- merge(alltargets,targets,by=colnames(alltargets),all=T)[order(bin)]
 
 clinbarcode <- str_remove(name, "_nodups.bam")
 
@@ -803,7 +814,7 @@ if (T) {
     
     # depth by pos 
     limits <- c(1e2,1e4); if (wgs) limits <- c(10,1000)
-    p$pos_rawdepth <- ggplot(targets) + xlab('Order of genomic position') + ylab('Read count') +
+    p$pos_rawdepth <- ggplot(targets) + xlab('Genomic position') + ylab('Read count') +
         geom_point(data=targets[is_target==T],mapping = aes(x=gpos,y=count),fill='#60606050',col='#20202050',size=1,shape=21) +
         geom_point(data=targets[!is.na(label)],mapping = aes(x=gpos,y=count,fill=label),shape=21,col='#00000050',size=size) +
         scale_fill_hue() + scale_y_log10(limits=limits) +
@@ -855,7 +866,7 @@ if (T) {
               axis.line = element_line(),
               axis.ticks = element_line()) 
     # logR by gc
-    p$gc_log2 <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth') +
+    p$gc_log2 <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth') + xlim(c(.2,.8)) +
         geom_point(data=targets,mapping = aes(x=gc,y=2^log2),fill='#60606040',col='#20202040',shape=21,size=1) + # fill='#60606040'
         geom_smooth(data=targets[!is.na(label)],
                     mapping = aes(x=gc,y=2^log2,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
@@ -877,7 +888,7 @@ if (T) {
               axis.line = element_line(),
               axis.ticks = element_line()) 
     # logR by gc
-    p$gc_log2x <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth v.2') +
+    p$gc_log2x <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth v.2') + xlim(c(.2,.8)) +
         geom_point(data=targets,mapping = aes(x=gc,y=2^log2x),fill='#60606040',col='#20202040',shape=21,size=1) + # fill='#60606040'
         geom_smooth(data=targets[!is.na(label)],
                     mapping = aes(x=gc,y=2^log2x,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
@@ -917,7 +928,7 @@ if (T) {
               axis.line = element_line(),
               axis.ticks = element_line()) 
     # depth by GC 
-    p$gc_rawdepth <- ggplot(targets) + xlab('Target GC content') + ylab('Frag count') +
+    p$gc_rawdepth <- ggplot(targets) + xlab('Target GC content') + ylab('Frag count') + xlim(c(.2,.8)) +
         geom_point(data=targets[is_target==T],mapping = aes(x=gc,y=count),fill='#60606040',col='#20202040',shape=21,size=1) + # 
         geom_smooth(data=targets[!is.na(label) & !is.na(log2)],
                     mapping = aes(x=gc,y=count,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
@@ -926,20 +937,21 @@ if (T) {
     
     for (i in 1:length(p)) p[[i]] <- p[[i]] + guides(fill=guide_legend(override.aes=list(shape=21,size=3)))
     
-    stats <- paste0('Coverage: ',
-                    paste(round(quantile(targets[is_backbone==T & is_target==T]$count,c(.025,.975))),collapse = '-'),
+    stats <- paste0('Fragments per target: ',
+                    paste(round(quantile(alltargetcount,c(.025,.975))),collapse = '-'),
                     ', Noise: ',
                     noise(targets[is_target==T]$log2),'% / ', noise(targets[is_target==F]$log2),'%'
     )
     
     if (wgs) stats <- paste0('Fragments per target: ',
-                             paste(round(quantile(targets[is_backbone==T]$count,c(.025,.975))),collapse = '-'),
+                             paste(round(quantile(alltargetcount,c(.025,.975))),collapse = '-'),
                              ', Noise: ',
                              noise(targets$log2),'%'
     )
     
     pa <- plot_annotation(
-        title = paste(clinbarcode,'         ',date(),'         ',stats),
+        title = paste(clinbarcode,'         ',stats),
+        caption = paste('Jumble',jumble_version,'on',format(Sys.time(), "%a %b %e %Y, %H:%M"))
     )
 
     if (snp_allele_ratio & !wgs) {

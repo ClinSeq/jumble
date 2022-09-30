@@ -15,8 +15,8 @@
     suppressPackageStartupMessages(library(VariantAnnotation))
     suppressPackageStartupMessages(library(doParallel))
     suppressPackageStartupMessages(library(MASS))
-    suppressPackageStartupMessages(library(rtracklayer))
-    suppressPackageStartupMessages(library(rospca))
+    #suppressPackageStartupMessages(library(rtracklayer))
+    #suppressPackageStartupMessages(library(rospca))
 }
 # Options ------------------------------------------------------------
 
