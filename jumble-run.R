@@ -338,10 +338,13 @@ targets <- targets[bin %in% reference$keep]
 
 
 deviation <- function(vector) {
-    d <- abs(diff(vector))
-    d[is.na(d)] <- 1
-    dd <- c(1,d) * c(d,1)
-    return(dd)
+    # d <- abs(diff(vector))
+    # d[is.na(d)] <- 1
+    # dd <- c(1,d) * c(d,1)
+    # return(dd)
+    m <- runmed(vector,k = 5)
+    d <- abs(vector-m)
+    return(d)
 }
 
 targets[,dev:=deviation(rawLR),by=chromosome]
@@ -397,6 +400,9 @@ jcorrect <- function(temp,train_ix=NULL) {
                             family="symmetric", control = loess.control(surface = "direct"))
         temp[,lr:=lr-predict(loess_temp,temp)]
     }
+    
+    # using no more than 20 pcs from here
+    #pcs <- min(20,round(pcs/2))
         
     for (i in 1:(pcs)) {
         temp$thispc=temp[[paste0('PC',i)]]
@@ -581,15 +587,22 @@ targets[,log2x:=log2_short]
 # Remove outliers 2 ------------------------------------------------------------
 
 deviation <- function(vector) {
-    d <- abs(diff(vector))
-    d[is.na(d)] <- 1
-    dd <- c(1,d) * c(d,1)
-    return(dd)
+    # d <- abs(diff(vector))
+    # d[is.na(d)] <- 1
+    # dd <- c(1,d) * c(d,1)
+    # return(dd)
+    m <- runmed(vector,k = 9)
+    d <- abs(vector-m)
+    return(d)
 }
 
 targets[,dev:=deviation(log2),by=chromosome]
-targets <- targets[dev<.5]
+targets <- targets[dev<1]
 
+targets[log2 < -4, log2:=-4]
+targets[log2 > 7, log2:=7]
+targets[log2x < -4, log2x:=-4]
+targets[log2x > 7, log2x:=7]
 
 # Segmentation ------------------------------------------------------------
 
@@ -682,7 +695,7 @@ clinbarcode <- str_remove(name, "_nodups.bam")
 #fwrite(x = segments_genes,file = paste0(opt$output_dir,'/',clinbarcode,'.segments.csv'))
 
 # Jumble targets and background
-#fwrite(x = targets,file = paste0(opt$output_dir,'/',clinbarcode,'.targets.csv'))
+fwrite(x = targets,file = paste0(opt$output_dir,'/',clinbarcode,'.jumble.csv'))
 
 
 
