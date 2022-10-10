@@ -83,8 +83,18 @@ targets <- reference$targets
 name <- str_remove(opt$input_bam,'.*/')
 name <- str_remove(name,'\\.counts.RDS')
 
-targets$sample <- name
+clinbarcode <- str_remove(name, "[_-]nodups.bam")
 
+targets$sample <- clinbarcode
+
+
+# Mark tiled
+targets[,left:=c(Inf,abs(diff(mid)))]
+targets[,right:=c(abs(diff(mid)),Inf)]
+targets[,farthest:=left][right>left,farthest:=right]
+targets[,is_tiled:=F][farthest<250,is_tiled:=T]
+targets[,left:=NULL][,right:=NULL][,farthest:=NULL]
+tiled_genes <- as.data.table(sort(table(targets[is_tiled==T]$gene),decreasing = T))
 
 # Add counts
 targets[,count:=counts$count]
@@ -105,14 +115,34 @@ ranges <- makeGRangesFromDataFrame(targets)
 
 
 
+# Modify backbone ----------------------------------------------------------
+set.seed(25) # <------------------ To be reproducible.
+max_backbone_in_gene <- 20 #  <--- applies to some
+
+if (!wgs) {
+    genes <- c('ATM','BRCA1','BRCA2','PTEN')
+    targets[,is_backbone:=chromosome %in% 1:22 & !gene %in% genes]
+    for (g in genes) {
+        ix=targets[gene==g & chromosome %in% as.character(1:22),.I]
+        n <- length(ix)
+        if (n>max_backbone_in_gene) ix=ix[order(rnorm(n))][1:max_backbone_in_gene]
+        targets[ix,is_backbone:=T]
+    }
+}
+
+
+
 # SNP allele ratio ------------------------------------------------------------
 #save.image('ws.Rdata')
 
 peakx <- function(data) {
     if(length(data)==1) return(data)
-    d <- density(data[!is.na(data)])
+    maxx <- NA
+    try({
+        d <- density(data[!is.na(data)])
     maxy <- max(d$y)
     maxx <- d$x[d$y==maxy][1]
+    }, silent=T)
     return(maxx)
 }
 
@@ -296,10 +326,6 @@ if (!is.null(input)) {
 # LogR and genotype correction ------------------------------------------------------------
 
 
- 
-mapd <- function(data) {
-    return(median(abs(diff(data)),na.rm = T))
-} 
 
 
 min1 <- function(data) {
@@ -326,33 +352,38 @@ targets[reference$keep,rawLR_short:=rawLR_short-reference$median_short]
 
 alltargets <- copy(targets) # to get the full set back later
 
-gc_range <- quantile(targets$gc,c(.01,.99),na.rm=T)
-targets <- targets[is_target==F | (gc > gc_range[1] & gc < gc_range[2])]
-
-gc_range <- c(.25,.65)
-if (wgs) gc_range <- c(.25,.75)
-targets <- targets[is_target==F | (gc > gc_range[1] & gc < gc_range[2])]
-
 # keep only bins "ok" in this reference set
 targets <- targets[bin %in% reference$keep]
 
 
-deviation <- function(vector) {
-    # d <- abs(diff(vector))
-    # d[is.na(d)] <- 1
-    # dd <- c(1,d) * c(d,1)
-    # return(dd)
-    m <- runmed(vector,k = 5)
-    d <- abs(vector-m)
-    return(d)
+# PCA outliers based on score SD
+set.seed(25)
+pca <- as.data.table(prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x)
+targets[,keep:=T]
+
+for (pc in colnames(pca)) {
+    fact <- ifelse(pc %in% c('PC1','PC2'),2,3)
+    sd <- sd(pca[[pc]])
+    targets[pca[[pc]] < -sd*fact, keep:=F]
+    targets[pca[[pc]] > sd*fact, keep:=F]
 }
+targets <- targets[keep==T]
+targets[,keep:=NULL]
 
-targets[,dev:=deviation(rawLR),by=chromosome]
-targets[dev<3][,rawLR:=NA]
-targets$dev <- NULL
 
-# remove the NA before creating a reference PCA:
-targets <- targets[!is.na(rawLR)]
+# 
+# deviation <- function(vector) {
+#     m <- runmed(vector,k = 7)
+#     d <- abs(vector-m)
+#     return(d)
+# }
+# 
+# targets[,dev:=deviation(rawLR),by=chromosome]
+# targets[dev<3][,rawLR:=NA]
+# targets$dev <- NULL
+# 
+# # remove the NA before creating a reference PCA:
+# targets <- targets[!is.na(rawLR)]
 
 # pca <- as.data.table(prcomp(reference$targets_ref[bin %in% targets$bin,-1],center = F,scale. = F)$x)
 # n_pcs <- min(ncol(pca,5))
@@ -366,10 +397,11 @@ targets <- targets[!is.na(rawLR)]
 
 ix <- targets[is_target==T]$bin # the ontarget
 
+set.seed(25)
 tpca <- as.data.table(prcomp(reference$targets_ref[bin %in% ix,-1],center = F,scale. = F)$x)
 tpca_short <- as.data.table(prcomp(reference$targets_ref_short[bin %in% ix,-1],center = F,scale. = F)$x)
 
-if (!wgs) {
+if (!wgs) if (any(targets$is_target==F)) {
     ix <- targets[is_target==F]$bin # the offtarget
     bgpca <- as.data.table(prcomp(reference$targets_ref[bin %in% ix,-1],center = F,scale. = F)$x)
     bgpca_short <- as.data.table(prcomp(reference$targets_ref_short[bin %in% ix,-1],center = F,scale. = F)$x)
@@ -448,7 +480,7 @@ temp <- cbind(data.table(
     tpca_short)
 targets[ix,log2_short:=jcorrect(temp,targets[ix]$is_backbone)]
 
-if (!wgs) {
+if (!wgs) if (any(targets$is_target==F)) {
     ix <- targets$is_target
     # standard bg
     temp <- cbind(data.table(
@@ -587,11 +619,7 @@ targets[,log2x:=log2_short]
 # Remove outliers 2 ------------------------------------------------------------
 
 deviation <- function(vector) {
-    # d <- abs(diff(vector))
-    # d[is.na(d)] <- 1
-    # dd <- c(1,d) * c(d,1)
-    # return(dd)
-    m <- runmed(vector,k = 9)
+    m <- runmed(vector,k = 7)
     d <- abs(vector-m)
     return(d)
 }
@@ -603,6 +631,20 @@ targets[log2 < -4, log2:=-4]
 targets[log2 > 7, log2:=7]
 targets[log2x < -4, log2x:=-4]
 targets[log2x > 7, log2x:=7]
+
+
+
+# Adjust X to background ------------------------------------------------------------
+
+# X-chromosome correction factor to targeted bins, based on background bins
+temp <- targets[chromosome=='X' & !is.na(log2)]
+temp[,bg:=as.numeric(NA)][is_target==F,bg:=2^log2]
+temp[,bg_median:=runmed(bg,51,na.action = 'na.omit')]
+temp[,tg:=as.numeric(NA)][is_target==T & is_tiled==F & gene=='',tg:=2^log2]
+temp[,tg_median:=runmed(tg,51,na.action = 'na.omit')]
+temp[,dif:=bg_median-tg_median]
+x_correct <- median(temp$dif,na.rm = T)
+targets[chromosome=='X' & is_target==T, log2:=log2+x_correct]
 
 # Segmentation ------------------------------------------------------------
 
@@ -689,8 +731,6 @@ suppressWarnings(
 
 targets <- merge(alltargets,targets,by=colnames(alltargets),all=T)[order(bin)]
 
-clinbarcode <- str_remove(name, "_nodups.bam")
-
 # The combined segments and genes table (skipped for now)
 #fwrite(x = segments_genes,file = paste0(opt$output_dir,'/',clinbarcode,'.segments.csv'))
 
@@ -722,17 +762,22 @@ fwrite(x = seg,file = paste0(opt$output_dir,'/',clinbarcode,'_dnacopy.seg'),sep 
 # Count file output ------------------------------------------------------------
 # (not overwrite, not if input was counts.RDS)
 if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.*counts.RDS')))
-    if (!str_detect(opt$input_bam,'counts.RDS'))
+    if (!str_detect(opt$input_bam,'counts.RDS$'))
         saveRDS(counts,paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS'))
 
 
-# Save workspace ------------------------------------------------------------
+# Save workspace? ------------------------------------------------------------
 #save.image(paste0(opt$output_dir,'/',clinbarcode,'.jumble_workspace.Rdata'))
 
 
 
+# QC metrics ------------------------------------------------------------
+#save.image(paste0(opt$output_dir,'/',clinbarcode,'.jumble_workspace.Rdata'))
 
-# Plot ------------------------------------------------------------
+
+mapd <- function(data) {
+    return(median(abs(diff(data)),na.rm = T))
+} 
 
 noise <- function(data) {
     m <- mapd(data)
@@ -740,12 +785,54 @@ noise <- function(data) {
     return(round(100*f,2))
 }
 
+if (!wgs) {
+    
+    # tiled gene bias
+    tiled_genes <- as.data.table(sort(table(targets[is_tiled==T]$gene),decreasing = T))
+    include_genes <- tiled_genes[N>50]$V1
+    targets[,chr_median:=as.numeric(NA)][,chr_median:=peakx(log2[is_tiled==F & is_target==T]),by=chromosome]
+    targets[,tiled_median:=as.numeric(NA)][,tiled_median:=peakx(log2[gene %in% include_genes & is_tiled==T]),by=gene]
+    targets[,tiled_bias:=tiled_median-chr_median]
+    tiled <- unique(targets[!is.na(tiled_bias),.(sample,gene,chr_median,tiled_median,tiled_bias)])
+    tiled_bias <- round(100*2^median(abs(tiled$tiled_bias))-100,2)
+    
+    # waviness 11 to 51 (non-tiled) target bins
+    temp <- targets[is_tiled==F & is_target==T][!is.na(log2)]
+    temp[,peak11:=frollapply(log2, 11, peakx)]
+    temp[,peak51:=frollapply(log2, 51, peakx)]
+    waviness <- round(100*2^median(abs(temp$peak11-temp$peak51),na.rm=T)-100,2)
+    
+    
+    stats <- paste0('Fragments per target: ',
+                    paste(round(quantile(alltargetcount,c(.025,.975))),collapse = '-'),
+                    ', Noise: ',
+                    noise(targets[is_target==T]$log2),'%/', noise(targets[is_target==F]$log2),'%',
+                    ', Bias: ', tiled_bias,'%',
+                    ', Waviness: ', waviness,'%'
+    )
+}
+
+
+
+if (wgs) stats <- paste0('Fragments per target: ',
+                         paste(round(quantile(alltargetcount,c(.025,.975))),collapse = '-'),
+                         ', Noise: ',
+                         noise(targets$log2),'%'
+)
+
+
+
+
+# Plot ------------------------------------------------------------
+
+
+
 if (T) {
     
     
     
     p <- NULL
-    targets[,smooth_log2:=runmed(log2,k=21),by=chromosome]
+    targets[,smooth_log2:=runmed(log2,k=7),by=chromosome]
     ylims <- c(.4,max(2,max(2^targets$smooth_log2)))
     
     size <- 1; if (wgs) size <- 2
@@ -763,6 +850,10 @@ if (T) {
         }
     }
     
+    #targets <- targets[is_target==T]
+    
+    ## Grid ------------------------------------------------------------
+    
     if (snp_allele_ratio) { 
         
         # defaults to using raw allele ratio:
@@ -775,22 +866,23 @@ if (T) {
         
         targets[,allele_ratio:=as.double(NA)][match(snp_table$bin,bin),allele_ratio:=snp_table$allele_ratio_use]
         targets[,maf:=abs(allele_ratio-.5)+.5]
-        targets[!is.na(maf),maf:=runmed(maf,9)]
+        targets[!is.na(maf),maf:=runmed(maf,7)]
         # snp (grid) smooth-to-allele-ratio plot
         p$grid <- ggplot(targets) + xlim(c(.2,1.8)) + ylim(c(.5,1)) + xlab('Corrected depth (smooth)') + ylab('Major allele ratio (smooth)') +
-            geom_point(data=targets[,.(log2,maf)],aes(x=2^log2,y=maf),col='lightgrey') +
-            geom_point(aes(x=2^log2,y=maf),fill='#60606090',col='#20202090',shape=21) +
-            geom_point(data=targets[label!=''],aes(x=2^log2,y=maf,fill=label),shape=21,col='#00000050',size=size) +
+            geom_point(data=targets[,.(smooth_log2,maf)],aes(x=2^smooth_log2,y=maf),col='lightgrey',alpha=.2) +
+            geom_point(aes(x=2^smooth_log2,y=maf),fill='#60606090',col='#20202090',shape=21) +
+            geom_point(data=targets[label!=''],aes(x=2^smooth_log2,y=maf,fill=label),shape=21,col='#00000050',size=size) +
             facet_wrap(facets = vars(factor(chromosome,levels=unique(chromosome),ordered=T)),ncol = 8) +
             theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8))
         # snp (all) smooth-to-allele-ratio plot
         temp <- targets[!is.na(label),median(log2),by=label]
         p$nogrid <- ggplot(targets) + xlim(c(0,2.5)) + ylim(c(.5,1)) + xlab('Corrected depth (smooth)') + ylab('Major allele ratio (smooth)') +
-            geom_point(data=targets[,.(log2,maf)],aes(x=2^log2,y=maf),fill='#60606090',col='#20202090',shape=21) +
-            geom_point(data=targets[label!=''],aes(x=2^log2,y=abs(allele_ratio-.5)+.5,fill=label),shape=21,col='#00000050',size=size) +
+            geom_point(data=targets[,.(smooth_log2,maf)],aes(x=2^smooth_log2,y=maf),fill='#60606090',col='#20202090',shape=21) +
+            geom_point(data=targets[label!=''],aes(x=2^smooth_log2,y=abs(allele_ratio-.5)+.5,fill=label),shape=21,col='#00000050',size=size) +
             geom_point(data=temp,mapping=aes(x=2^V1,y=1,fill=label),size=2,shape=25,show.legend=F)
     }
     
+    # By pos ------------------------------------------------------------
     
     # chroms object by genomic pos
     chroms <- data.table(chromosome=names(reference$chromlength),length=reference$chromlength)
@@ -853,6 +945,8 @@ if (T) {
                   axis.line = element_line(),
                   axis.ticks = element_line()) 
     }
+    
+    # By order ------------------------------------------------------------
     
     # chroms object by order
     chroms=data.table(chromosome=unique(targets$chromosome),
@@ -928,6 +1022,9 @@ if (T) {
             geom_point(data=targets[!is.na(label)],mapping = aes(x=count,y=allele_ratio,fill=label),shape=21,col='#00000050',size=1) +
             scale_fill_hue() + ylim(0:1) + scale_x_log10(limits=c(m/3,m*3))
     }
+    
+    # Depth ------------------------------------------------------------
+    
     # depth by order 
     p$order_rawdepth <- ggplot(targets) + xlab('Order of genomic position') + ylab('Frag count') +
         geom_point(data=targets[is_target==T],mapping = aes(x=bin,y=count),fill='#60606050',col='#20202050',size=1,shape=21) +
@@ -943,30 +1040,21 @@ if (T) {
     # depth by GC 
     p$gc_rawdepth <- ggplot(targets) + xlab('Target GC content') + ylab('Frag count') + xlim(c(.2,.8)) +
         geom_point(data=targets[is_target==T],mapping = aes(x=gc,y=count),fill='#60606040',col='#20202040',shape=21,size=1) + # 
-        geom_smooth(data=targets[!is.na(label) & !is.na(log2)],
+        geom_smooth(data=targets[!is.na(label)],
                     mapping = aes(x=gc,y=count,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
         scale_fill_hue() + scale_y_log10(limits=limits)
     
     
     for (i in 1:length(p)) p[[i]] <- p[[i]] + guides(fill=guide_legend(override.aes=list(shape=21,size=3)))
     
-    stats <- paste0('Fragments per target: ',
-                    paste(round(quantile(alltargetcount,c(.025,.975))),collapse = '-'),
-                    ', Noise: ',
-                    noise(targets[is_target==T]$log2),'% / ', noise(targets[is_target==F]$log2),'%'
-    )
-    
-    if (wgs) stats <- paste0('Fragments per target: ',
-                             paste(round(quantile(alltargetcount,c(.025,.975))),collapse = '-'),
-                             ', Noise: ',
-                             noise(targets$log2),'%'
-    )
     
     pa <- plot_annotation(
         title = paste(clinbarcode,'         ',stats),
         caption = paste('Jumble',jumble_version,'on',format(Sys.time(), "%a %b %e %Y, %H:%M"))
     )
 
+    # Layout ------------------------------------------------------------
+    
     if (snp_allele_ratio & !wgs) {
         
         layout <-  "ABBBB
@@ -1017,7 +1105,9 @@ if (T) {
 }
 
 
-# Close image
+
+# Close image ------------------------------------------------------------
+
 
 dev.off()
 
