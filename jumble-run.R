@@ -3,6 +3,7 @@
 jumble_version <- '0.2.0'
 
 # Markus Mayrhofer 2022
+
 # Dependencies ------------------------------------------------------------
 {
     suppressPackageStartupMessages(library(optparse))
