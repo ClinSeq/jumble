@@ -933,7 +933,7 @@ if (T) {
               axis.ticks = element_line()) 
     
     # depth by pos 
-    limits <- c(1e2,1e4); if (wgs) limits <- c(10,1000)
+    limits <- c(1e2,1e4)
     p$pos_rawdepth <- ggplot(targets) + xlab('Genomic position') + ylab('Read count') +
         geom_point(data=targets[is_target==T],mapping = aes(x=gpos,y=count),fill='#60606050',col='#20202050',size=1,shape=21) +
         geom_point(data=targets[!is.na(label)],mapping = aes(x=gpos,y=count,fill=label),shape=21,col='#00000050',size=size) +
