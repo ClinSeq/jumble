@@ -56,7 +56,7 @@ files=dir(path = opt$input_folder,pattern = 'counts.RDS$',full.names = T)
             counts$input_bam_file <- files[i]
         ntargets[i] <- length(counts$count)
         if (!is.null(counts$target_bed_file)) 
-            bed_files[i] <- str_remove(string = counts$target_bed_file,pattern = '^.*/') else bed_files[i] <- ''
+            bed_files[i] <- str_remove(string = counts$target_bed_file,pattern = '^.*/') else bed_files[i] <- 'wgs'
         allcounts[[i]] <- counts
     }
     

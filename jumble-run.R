@@ -363,7 +363,7 @@ pca <- as.data.table(prcomp(reference$targets_ref[,-1],center = F,scale. = F)$x)
 targets[,keep:=T]
 
 for (pc in colnames(pca)) {
-    fact <- ifelse(pc %in% c('PC1','PC2'),2,3)
+    fact <- ifelse(pc %in% c('PC1','PC2'),4,4)
     sd <- sd(pca[[pc]])
     targets[pca[[pc]] < -sd*fact, keep:=F]
     targets[pca[[pc]] > sd*fact, keep:=F]
@@ -628,7 +628,7 @@ deviation <- function(vector) {
 }
 
 targets[,dev:=deviation(log2),by=chromosome]
-targets <- targets[dev<1]
+#targets <- targets[dev<1]
 
 targets[log2 < -4, log2:=-4]
 targets[log2 > 7, log2:=7]
