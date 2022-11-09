@@ -372,26 +372,6 @@ targets <- targets[keep==T]
 targets[,keep:=NULL]
 
 
-# 
-# deviation <- function(vector) {
-#     m <- runmed(vector,k = 7)
-#     d <- abs(vector-m)
-#     return(d)
-# }
-# 
-# targets[,dev:=deviation(rawLR),by=chromosome]
-# targets[dev<3][,rawLR:=NA]
-# targets$dev <- NULL
-# 
-# # remove the NA before creating a reference PCA:
-# targets <- targets[!is.na(rawLR)]
-
-# pca <- as.data.table(prcomp(reference$targets_ref[bin %in% targets$bin,-1],center = F,scale. = F)$x)
-# n_pcs <- min(ncol(pca,5))
-# for (i in 1:n_pcs) {
-#     pc_range <- quantile(x[,i],c(.005,.995),na.rm=T)
-# }
-
 
 
 # PCA v1 ------------------------------------------------------------
@@ -502,138 +482,61 @@ if (!wgs) if (any(targets$is_target==F)) {
 }
 
 
-# PCA v2 ------------------------------------------------------------
-
-# ix <- targets[is_target==T & gc>.3 & gc<.6]$bin # the ontarget and good enough
-# 
-# tpca <- as.data.table(prcomp(reference$targets_ref[bin %in% ix,-1],center = F,scale. = F)$x)
-# tpca_short <- as.data.table(prcomp(reference$targets_ref_short[bin %in% ix,-1],center = F,scale. = F)$x)
-# 
-# if (!wgs) {
-#     ix <- targets[is_target==F]$bin # the offtarget
-#     bgpca <- as.data.table(prcomp(reference$targets_ref[bin %in% ix,-1],center = F,scale. = F)$x)
-#     bgpca_short <- as.data.table(prcomp(reference$targets_ref_short[bin %in% ix,-1],center = F,scale. = F)$x)
-# }
-# 
 
 
 
-# Reference data correction v2 ------------------------------------------------------------
 
 
-targets[,log2x:=log2_short]
-# 
-# 
-# # standard
-# ix <- targets$is_target==T & targets$gc>.3 & targets$gc<.6
-# temp <- cbind(data.table(
-#     lr=targets[ix]$rawLR),
-#     gc=targets[ix]$gc,
-#     tpca)
-# targets[ix,log2x:=jcorrect(temp,targets[ix]$is_backbone)]
-# 
-# 
-# if (!wgs) {
-#     ix <- targets$is_target==F
-#     # standard bg
-#     temp <- cbind(data.table(
-#         lr=targets[ix]$rawLR),
-#         gc=targets[ix]$gc,
-#         bgpca)
-#     targets[ix,log2x:=jcorrect(temp,targets[ix]$is_backbone)]
-#     
-# }
-# 
+# Alternative correction ------------------------------------------------------------
 
+# These are performed only for "targets".
 
-# temp <- cbind(data.table(
-#     lr=targets$rawLR),
-#     gc=targets$gc,
-#     tpca)
-# targets[,log2x:=jcorrect(temp,targets$is_backbone)]
-
-
-# flatten <- function(vector) return(vector-runmed(vector,k=11))
-# flatten_mat <- function(mat) return(apply(mat,2,flatten))
-# 
-# jcorrect_v2 <- function(lr,gc,ref) {
-# 
-#     flat_sample <- flatten(lr)
-#     flat_ref <- flatten_mat(ref)
-#     
-#     pca <- prcomp(t(flat_ref),center = F,scale. = F)
-#     
-#     ncomp <- min(10,ceiling(ncol(flat_ref)/2))
-#     scores <- pca$x[,1:ncomp]
-#     
-#     getCoeff <- function(scores, responsevector) {
-#         m <- rlm(responsevector ~ scores)
-#         return(as.data.table(t(m$coefficients)))
-#     }  
-#     
-#     coeffs <- NULL
-#     for (i in 1:nrow(ref)) {
-#         coeffs[[i]] <- getCoeff(scores,t(ref[i,]))
-#     }
-#     coeffs <- rbindlist(coeffs)
-#     
-#     # compute prediction
-#     prediction <- coeffs$`(Intercept)`
-#     for (i in 2:ncol(coeffs)) {
-#         prediction <- prediction + coeffs[,..i] * scores[i-1]
-#     }
-#     
-#     new_lr <- lr-prediction[[1]]
-#     return(new_lr)
-# }
-
-
-
-# standard
-
-#lr <- targets[is_target==T & chromosome!='Y']$rawLR
-#gc <- targets[is_target==T & chromosome!='Y']$gc
-#ref <- reference$targets_ref[,-1]
-
-# targets[is_target==T & chromosome!='Y',log2x:=jcorrect_v2(rawLR,
-#                                                       gc,
-#                                                       reference$targets_ref[,-1])]
-# 
-# # short
-# targets[is_target==T & chromosome!='Y',log2_shortx:=jcorrect_v2(rawLR_short,
-#                                                       gc,
-#                                                       reference$targets_ref_short[,-1])]
-# 
-# if (!wgs) {
-#     # standard bg
-#     targets[is_target==F & chromosome!='Y',log2x:=jcorrect_v2(rawLR,
-#                                                           gc,
-#                                                           reference$background_ref[,-1])]
-#     
-#     
-#     # bg short
-#     targets[is_target==F & chromosome!='Y',log2_shortx:=jcorrect_v2(rawLR_short,
-#                                                           gc,
-#                                                           reference$background_ref_short[,-1])]
-#     
-# }
+if (!wgs) {
+    
+    # Simple reference + GC
+    ix <- which(!is.na(targets$gc))
+    loess_temp=loess(rawLR ~ gc, data = targets[ix],
+                     family="symmetric", control = loess.control(surface = "direct"))
+    targets[ix,log2_simple:=rawLR-predict(loess_temp,targets[ix])]
+    
+    
+    # Pca projection + GC
+    ix <- targets[is_target==T]$bin # the ontarget
+    set.seed(25)
+    pca <- prcomp(t(reference$targets_ref[bin %in% ix,-1]),center = F,scale. = F)
+    query_x <- t(targets[bin %in% ix,.(rawLR)]) %*% pca$rotation
+    projection <- t(query_x %*% t(pca$rotation))
+    targets[bin %in% ix,log2_pca:=rawLR - projection]
+    loess_temp=loess(log2_pca ~ gc, data = targets[bin %in% ix],
+                     family="symmetric", control = loess.control(surface = "direct"))
+    targets[bin %in% ix,log2_pca:=log2_pca-predict(loess_temp,targets[bin %in% ix])]
+    
+    # Jumble correct incl GC but no subselect
+    
+    ix <- targets$is_target
+    temp <- cbind(data.table(
+        lr=targets[ix]$rawLR),
+        gc=targets[ix]$gc,
+        tpca)
+    targets[ix,log2_nosub:=jcorrect(temp)]
+}
 
 
 # Remove outliers 2 ------------------------------------------------------------
 
-deviation <- function(vector) {
-    m <- runmed(vector,k = 7)
-    d <- abs(vector-m)
-    return(d)
-}
-
-targets[,dev:=deviation(log2),by=chromosome]
+# deviation <- function(vector) {
+#     m <- runmed(vector,k = 7)
+#     d <- abs(vector-m)
+#     return(d)
+# }
+# 
+# targets[,dev:=deviation(log2),by=chromosome]
 #targets <- targets[dev<1]
 
 targets[log2 < -4, log2:=-4]
 targets[log2 > 7, log2:=7]
-targets[log2x < -4, log2x:=-4]
-targets[log2x > 7, log2x:=7]
+#targets[log2x < -4, log2x:=-4]
+#targets[log2x > 7, log2x:=7]
 
 
 
@@ -975,7 +878,7 @@ if (T) {
     }
     # logR by order
     p$order_log2 <- ggplot(targets) + xlab('Order of genomic position') + ylab('Corrected depth') +
-        geom_point(data=targets[is.na(label)],mapping = aes(x=bin,y=2^log2),fill='#60606070',col='#20202070',size=1) +
+        geom_point(data=targets[is.na(label) & is_target==T],mapping = aes(x=bin,y=2^log2),fill='#60606070',col='#20202070',size=1) +
         geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2,fill=label),shape=21,col='#00000050',size=size) +
         scale_fill_hue() + scale_y_log10(limits=ylims) +
         geom_segment(data=segments,col='green',size=1,
@@ -999,9 +902,9 @@ if (T) {
     m <- targets[is_target==T,median(count)]
     
     ##### testing alt. correction:
-    p$order_log2x <- ggplot(targets) + xlab('Order of genomic position') + ylab('Corrected depth v.2') +
-        geom_point(data=targets[is.na(label)],mapping = aes(x=bin,y=2^log2x),fill='#60606070',col='#20202070',size=1) +
-        geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2x,fill=label),shape=21,col='#00000050',size=size) +
+    p$order_log2_simple <- ggplot(targets) + xlab('Order of genomic position') + ylab('Corrected depth v.2') +
+        geom_point(data=targets[is.na(label)],mapping = aes(x=bin,y=2^log2_simple),fill='#60606070',col='#20202070',size=1) +
+        geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2_simple,fill=label),shape=21,col='#00000050',size=size) +
         scale_fill_hue() + scale_y_log10(limits=ylims) +
         geom_segment(data=segments,col='green',size=1,
                      mapping = aes(x=start,xend=end,y=2^mean,yend=2^mean)) +
@@ -1013,13 +916,11 @@ if (T) {
               axis.line = element_line(),
               axis.ticks = element_line()) 
     # logR by gc
-    p$gc_log2x <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth v.2') + xlim(c(.2,.78)) +
-        geom_point(data=targets,mapping = aes(x=gc,y=2^log2x,fill=label),
+    p$gc_log2_simple <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth v.2') + xlim(c(.2,.78)) +
+        geom_point(data=targets,mapping = aes(x=gc,y=2^log2_simple,fill=label),
                    col='#20202040',shape=21,size=1,alpha=.7,show.legend = F) + # fill='#60606040'
         facet_wrap(facets = vars(label),ncol = 2) +
         theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8)) +
-        # geom_smooth(data=targets[!is.na(label)],
-        #             mapping = aes(x=gc,y=2^log2x,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
         scale_fill_hue() + scale_y_log10(limits=ylims) 
     m <- targets[is_target==T,median(count)]
     ##
@@ -1085,29 +986,47 @@ if (T) {
     if (snp_allele_ratio & !wgs) {
         
         layout <-  "ABBBB
-                CDDDD
-                EFFFF
-                GGGGG
-                HHHHH
-                IJJJJ
-                IJJJJ"
-        fig <- 
+                    CDDDD
+                    EFFFF
+                    GHHHH
+                    IJJJJ
+                    KLLLL"
+        fig <-
             p$gc_rawdepth+p$order_rawdepth+
             p$gc_log2+p$order_log2+
+            p$gc_log2_simple+p$order_log2_simple+
+            #p$gc_log2+p$order_log2+
+            #p$gc_log2+p$order_log2+
             p$depth_alleleratio+p$order_alleleratio+
-            p$pos_log2+
-            p$pos_alleleratio+
-            p$nogrid+p$grid+
             plot_layout(design = layout,guides = 'collect')
     }
+    
+    # if (snp_allele_ratio & !wgs) {
+    #     
+    #     layout <-  "ABBBB
+    #             CDDDD
+    #             EFFFF
+    #             GGGGG
+    #             HHHHH
+    #             IJJJJ
+    #             IJJJJ"
+    #     fig <- 
+    #         p$gc_rawdepth+p$order_rawdepth+
+    #         p$gc_log2+p$order_log2+
+    #         p$depth_alleleratio+p$order_alleleratio+
+    #         p$pos_log2+
+    #         p$pos_alleleratio+
+    #         p$nogrid+p$grid+
+    #         plot_layout(design = layout,guides = 'collect')
+    # }
     if (!snp_allele_ratio & !wgs) {
-        
+
         layout <-  "ABBBB
                 CDDDD
                 EFFFF
                 GGGGG
                 "
-        fig <- 
+        fig <-
             p$gc_rawdepth+p$order_rawdepth+
             p$gc_log2+p$order_log2+
             p$gc_log2x+p$order_log2x+
