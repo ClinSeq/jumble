@@ -504,8 +504,9 @@ if (!wgs) {
     ix <- targets[is_target==T]$bin # the ontarget
     set.seed(25)
     pca <- prcomp(t(reference$targets_ref[bin %in% ix,-1]),center = F,scale. = F)
-    query_x <- t(targets[bin %in% ix,.(rawLR)]) %*% pca$rotation
-    projection <- t(query_x %*% t(pca$rotation))
+    npcs <- ceiling(ncol(pca$x)/2)
+    query_x <- t(targets[bin %in% ix,.(rawLR)]) %*% pca$rotation[,1:npcs]
+    projection <- t(query_x %*% t(pca$rotation[,1:npcs]))
     targets[bin %in% ix,log2_pca:=rawLR - projection]
     loess_temp=loess(log2_pca ~ gc, data = targets[bin %in% ix],
                      family="symmetric", control = loess.control(surface = "direct"))
@@ -643,7 +644,7 @@ targets <- merge(alltargets,targets,by=colnames(alltargets),all=T)[order(bin)]
 #fwrite(x = segments_genes,file = paste0(opt$output_dir,'/',clinbarcode,'.segments.csv'))
 
 # Jumble targets and background
-fwrite(x = targets,file = paste0(opt$output_dir,'/',clinbarcode,'.jumble.csv'))
+saveRDS(targets,file = paste0(opt$output_dir,'/',clinbarcode,'.jumble.RDS'))
 
 
 
@@ -653,18 +654,18 @@ cnr <- targets[!is.na(log2),.(chromosome=as.character(chromosome),start,end,gene
                               depth=round(count/width*200,3),log2,weight=1,
                               gc,count)][gene=='',gene:='-']
 
-fwrite(x = cnr,file = paste0(opt$output_dir,'/',clinbarcode,'.cnr'),sep = '\t')
+#fwrite(x = cnr,file = paste0(opt$output_dir,'/',clinbarcode,'.cnr'),sep = '\t')
 
 # cns:  chromosome      start   end     gene    log2    depth   probes  weight
 cns <- segments_genes[type=='segment',.(chromosome,start,end,gene=genes,log2=mean,depth=mean,probes=bins)]
-fwrite(x = cns,file = paste0(opt$output_dir,'/',clinbarcode,'.cns'),sep = '\t')
+#fwrite(x = cns,file = paste0(opt$output_dir,'/',clinbarcode,'.cns'),sep = '\t')
 
 
 # DNAcopy segment file:
 # ID    chrom   loc.start       loc.end num.mark        seg.mean        C
 seg <- segments[,.(ID=name,chrom=chromosome,loc.start=start_pos,loc.end=end_pos,num.mark=nbrOfLoci,seg.mean=mean,C=NA)]
 seg[,chrom:=str_replace(chrom,'Y','24')][,chrom:=str_replace(chrom,'X','23')][,chrom:=as.numeric(chrom)]
-fwrite(x = seg,file = paste0(opt$output_dir,'/',clinbarcode,'_dnacopy.seg'),sep = '\t')
+#fwrite(x = seg,file = paste0(opt$output_dir,'/',clinbarcode,'_dnacopy.seg'),sep = '\t')
 
 
 # Count file output ------------------------------------------------------------
@@ -896,14 +897,33 @@ if (T) {
                    col='#20202040',shape=21,size=1,alpha=.7,show.legend = F) + # fill='#60606040'
         facet_wrap(facets = vars(label),ncol = 2) +
         theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8)) +
-        # geom_smooth(data=targets[!is.na(label)],
-        #             mapping = aes(x=gc,y=2^log2,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
         scale_fill_hue() + scale_y_log10(limits=ylims) 
-    m <- targets[is_target==T,median(count)]
+
+    ##### short frags
+    p$order_log2x <- ggplot(targets) + xlab('Order of genomic position') + ylab('Corrected depth (<150)') +
+        geom_point(data=targets[is.na(label) & is_target==T],mapping = aes(x=bin,y=2^log2_short),fill='#60606070',col='#20202070',size=1) +
+        geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2_short,fill=label),shape=21,col='#00000050',size=size) +
+        scale_fill_hue() + scale_y_log10(limits=ylims) +
+        geom_segment(data=segments,col='green',size=1,
+                     mapping = aes(x=start,xend=end,y=2^mean,yend=2^mean)) +
+        scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
+                           expand = c(.01,.01),labels = chroms$chromosome) +
+        theme(panel.grid.major.x = element_blank(),
+              panel.grid.minor.y = element_line(),
+              panel.grid.minor.x = element_line(color = 'black'),
+              axis.line = element_line(),
+              axis.ticks = element_line()) 
+    # logR by gc, short
+    p$gc_log2x <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth (<150)') + xlim(c(.2,.78)) +
+        geom_point(data=targets,mapping = aes(x=gc,y=2^log2_short,fill=label),
+                   col='#20202040',shape=21,size=1,alpha=.7,show.legend = F) + # fill='#60606040'
+        facet_wrap(facets = vars(label),ncol = 2) +
+        theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8)) +
+        scale_fill_hue() + scale_y_log10(limits=ylims) 
     
     ##### testing alt. correction:
-    p$order_log2_simple <- ggplot(targets) + xlab('Order of genomic position') + ylab('Corrected depth v.2') +
-        geom_point(data=targets[is.na(label)],mapping = aes(x=bin,y=2^log2_simple),fill='#60606070',col='#20202070',size=1) +
+    p$order_log2_simple <- ggplot(targets) + xlab('Order of genomic position') + ylab('Simple corr.') +
+        geom_point(data=targets[is.na(label) & is_target==T],mapping = aes(x=bin,y=2^log2_simple),fill='#60606070',col='#20202070',size=1) +
         geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2_simple,fill=label),shape=21,col='#00000050',size=size) +
         scale_fill_hue() + scale_y_log10(limits=ylims) +
         geom_segment(data=segments,col='green',size=1,
@@ -916,15 +936,57 @@ if (T) {
               axis.line = element_line(),
               axis.ticks = element_line()) 
     # logR by gc
-    p$gc_log2_simple <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth v.2') + xlim(c(.2,.78)) +
+    p$gc_log2_simple <- ggplot(targets) + xlab('Target GC content') + ylab('Simple corr.') + xlim(c(.2,.78)) +
         geom_point(data=targets,mapping = aes(x=gc,y=2^log2_simple,fill=label),
                    col='#20202040',shape=21,size=1,alpha=.7,show.legend = F) + # fill='#60606040'
         facet_wrap(facets = vars(label),ncol = 2) +
         theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8)) +
         scale_fill_hue() + scale_y_log10(limits=ylims) 
-    m <- targets[is_target==T,median(count)]
     ##
+    p$order_log2_pca <- ggplot(targets) + xlab('Order of genomic position') + ylab('PCA corr.') +
+        geom_point(data=targets[is.na(label) & is_target==T],mapping = aes(x=bin,y=2^log2_pca),fill='#60606070',col='#20202070',size=1) +
+        geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2_pca,fill=label),shape=21,col='#00000050',size=size) +
+        scale_fill_hue() + scale_y_log10(limits=ylims) +
+        geom_segment(data=segments,col='green',size=1,
+                     mapping = aes(x=start,xend=end,y=2^mean,yend=2^mean)) +
+        scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
+                           expand = c(.01,.01),labels = chroms$chromosome) +
+        theme(panel.grid.major.x = element_blank(),
+              panel.grid.minor.y = element_line(),
+              panel.grid.minor.x = element_line(color = 'black'),
+              axis.line = element_line(),
+              axis.ticks = element_line()) 
+    # logR by gc
+    p$gc_log2_pca <- ggplot(targets) + xlab('Target GC content') + ylab('PCA corr.') + xlim(c(.2,.78)) +
+        geom_point(data=targets,mapping = aes(x=gc,y=2^log2_pca,fill=label),
+                   col='#20202040',shape=21,size=1,alpha=.7,show.legend = F) + # fill='#60606040'
+        facet_wrap(facets = vars(label),ncol = 2) +
+        theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8)) +
+        scale_fill_hue() + scale_y_log10(limits=ylims) 
+    ##
+    p$order_log2_nosub <- ggplot(targets) + xlab('Order of genomic position') + ylab('Jumble, nosub') +
+        geom_point(data=targets[is.na(label) & is_target==T],mapping = aes(x=bin,y=2^log2_nosub),fill='#60606070',col='#20202070',size=1) +
+        geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2_nosub,fill=label),shape=21,col='#00000050',size=size) +
+        scale_fill_hue() + scale_y_log10(limits=ylims) +
+        geom_segment(data=segments,col='green',size=1,
+                     mapping = aes(x=start,xend=end,y=2^mean,yend=2^mean)) +
+        scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
+                           expand = c(.01,.01),labels = chroms$chromosome) +
+        theme(panel.grid.major.x = element_blank(),
+              panel.grid.minor.y = element_line(),
+              panel.grid.minor.x = element_line(color = 'black'),
+              axis.line = element_line(),
+              axis.ticks = element_line()) 
+    # logR by gc
+    p$gc_log2_nosub <- ggplot(targets) + xlab('Target GC content') + ylab('Jumble, nosub') + xlim(c(.2,.78)) +
+        geom_point(data=targets,mapping = aes(x=gc,y=2^log2_nosub,fill=label),
+                   col='#20202040',shape=21,size=1,alpha=.7,show.legend = F) + # fill='#60606040'
+        facet_wrap(facets = vars(label),ncol = 2) +
+        theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8)) +
+        scale_fill_hue() + scale_y_log10(limits=ylims) 
+    ###
     
+    m <- targets[is_target==T,median(count)]
     if (snp_allele_ratio) {
         # allele ratio by order 
         p$order_alleleratio <- ggplot(targets) + xlab('Order of genomic position') + ylab('Allele ratio') +
@@ -994,9 +1056,9 @@ if (T) {
         fig <-
             p$gc_rawdepth+p$order_rawdepth+
             p$gc_log2+p$order_log2+
+            p$gc_log2_nosub+p$order_log2_nosub+
             p$gc_log2_simple+p$order_log2_simple+
-            #p$gc_log2+p$order_log2+
-            #p$gc_log2+p$order_log2+
+            p$gc_log2_pca+p$order_log2_pca+
             p$depth_alleleratio+p$order_alleleratio+
             plot_layout(design = layout,guides = 'collect')
     }
