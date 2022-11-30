@@ -19,8 +19,7 @@ jumble_version <- '0.2.0'
     suppressPackageStartupMessages(library(patchwork))
     suppressPackageStartupMessages(library(BSgenome.Hsapiens.UCSC.hg19))
     suppressPackageStartupMessages(library(BSgenome))
-    #suppressPackageStartupMessages(library(Repitools))
-    #suppressPackageStartupMessages(library(rospca))
+    suppressPackageStartupMessages(library(Repitools))
 }
 
 
@@ -58,7 +57,7 @@ countsFromBam <- function(counts,bampath) {
     counts$input_bam_file <- bampath
     ranges <- counts$ranges
     counts[['count']] <- bamCount(bampath, ranges, paired.end="midpoint",
-                                  mapq=20, filteredFlag=1024, verbose=F)
+                                  mapq=20, filteredFlag=1024, verbose=F) # todo: 3840?
     counts[['count_short']] <- bamCount(bampath, ranges, paired.end="midpoint",
                                         mapq=20, filteredFlag=1024, tlenFilter=c(0,150), verbose=F)
     return(counts)
@@ -543,17 +542,19 @@ targets[log2 > 7, log2:=7]
 
 # Adjust X to background ------------------------------------------------------------
 
-if (!wgs) {
-    # X-chromosome correction factor to targeted bins, based on background bins
-    temp <- targets[chromosome=='X' & !is.na(log2)]
-    temp[,bg:=as.numeric(NA)][is_target==F,bg:=2^log2]
-    temp[,bg_median:=runmed(bg,51,na.action = 'na.omit')]
-    temp[,tg:=as.numeric(NA)][is_target==T & is_tiled==F & gene=='',tg:=2^log2]
-    temp[,tg_median:=runmed(tg,51,na.action = 'na.omit')]
-    temp[,dif:=bg_median-tg_median]
-    x_correct <- median(temp$dif,na.rm = T)
-    targets[chromosome=='X' & is_target==T, log2:=log2+x_correct]
-}
+if (!wgs) try( 
+    {
+        # X-chromosome correction factor to targeted bins, based on background bins
+        temp <- targets[chromosome=='X' & !is.na(log2)]
+        temp[,bg:=as.numeric(NA)][is_target==F,bg:=2^log2]
+        temp[,bg_median:=runmed(bg,51,na.action = 'na.omit')]
+        temp[,tg:=as.numeric(NA)][is_target==T & is_tiled==F & gene=='',tg:=2^log2]
+        temp[,tg_median:=runmed(tg,51,na.action = 'na.omit')]
+        temp[,dif:=bg_median-tg_median]
+        x_correct <- median(temp$dif,na.rm = T)
+        targets[chromosome=='X' & is_target==T, log2:=log2+x_correct]
+    }, silent=T
+)
 
 # Segmentation ------------------------------------------------------------
 
@@ -569,13 +570,16 @@ getsegs <- function(targets, logratio) {
     segments <- segmentByCBS(y=logratio,avg='median',
                              chromosome=targets$chromosome,
                              alpha = alpha,undo=1)
-    segments <- as.data.table(segments)[!is.na(chromosome),-1]
+    segments <- as.data.table(segments)[!is.na(chromosome),-1][!is.na(mean)]
     segments[,start_pos:=targets$start[ceiling(start)]]
     segments[,end_pos:=targets$end[floor(end)]]
     segments[,genes:='']
     
+    targets[,segment:=as.numeric(NA)]
+    
     for (i in 1:nrow(segments)) {
         ix <- ceiling(segments[i]$start):floor(segments[i]$end)
+        targets[ix,segment:=i]
         segments[i,mean:=median(logratio[ix],na.rm = T)] # <----------------- here, value per segment is set
         genes <- paste0(unique(targets[ix][gene!='']$gene),collapse = ',')
         genes <- unique(strsplit(genes,',')[[1]])
@@ -599,7 +603,7 @@ getsegs <- function(targets, logratio) {
 
 # Do the segmentation
 targets[,chromosome:=str_replace(chromosome,'Y','24')][,chromosome:=str_replace(chromosome,'X','23')][,chromosome:=as.numeric(chromosome)]
-segments <- getsegs(copy(targets), targets$log2)
+segments <- getsegs((targets), targets$log2)
 targets[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 segments[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 
@@ -645,8 +649,7 @@ targets <- merge(alltargets,targets,by=colnames(alltargets),all=T)[order(bin)]
 
 # Jumble targets and background
 saveRDS(targets,file = paste0(opt$output_dir,'/',clinbarcode,'.jumble.RDS'))
-
-
+saveRDS(snp_table,file = paste0(opt$output_dir,'/',clinbarcode,'.jumble_snps.RDS'))
 
 # for compatibility with CNVkit.
 # cnr:  chromosome      start   end     gene    depth   log2    weight ()
@@ -736,7 +739,7 @@ if (wgs) stats <- paste0('Fragments per target: ',
 
 
 
-if (T) {
+if (F) {
     
     
     
@@ -898,7 +901,7 @@ if (T) {
         facet_wrap(facets = vars(label),ncol = 2) +
         theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8)) +
         scale_fill_hue() + scale_y_log10(limits=ylims) 
-
+    
     ##### short frags
     p$order_log2x <- ggplot(targets) + xlab('Order of genomic position') + ylab('Corrected depth (<150)') +
         geom_point(data=targets[is.na(label) & is_target==T],mapping = aes(x=bin,y=2^log2_short),fill='#60606070',col='#20202070',size=1) +
@@ -1082,7 +1085,7 @@ if (T) {
     #         plot_layout(design = layout,guides = 'collect')
     # }
     if (!snp_allele_ratio & !wgs) {
-
+        
         layout <-  "ABBBB
                 CDDDD
                 EFFFF
@@ -1110,15 +1113,15 @@ if (T) {
     png(file = paste0(opt$output_dir,'/',clinbarcode,'.png'),width = 1800,height=1400,res=100)
     print(fig+pa)
     
+    
+    
+    
+    
+    # Close image ------------------------------------------------------------
+    
+    
+    dev.off()
+    
 }
-
-
-
-# Close image ------------------------------------------------------------
-
-
-dev.off()
-
-
 
 
