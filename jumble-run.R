@@ -649,7 +649,7 @@ targets <- merge(alltargets,targets,by=colnames(alltargets),all=T)[order(bin)]
 
 # Jumble targets and background
 saveRDS(targets,file = paste0(opt$output_dir,'/',clinbarcode,'.jumble.RDS'))
-saveRDS(snp_table,file = paste0(opt$output_dir,'/',clinbarcode,'.jumble_snps.RDS'))
+if (snp_allele_ratio) saveRDS(snp_table,file = paste0(opt$output_dir,'/',clinbarcode,'.jumble_snps.RDS'))
 
 # for compatibility with CNVkit.
 # cnr:  chromosome      start   end     gene    depth   log2    weight ()
@@ -739,7 +739,7 @@ if (wgs) stats <- paste0('Fragments per target: ',
 
 
 
-if (F) {
+if (T) {
     
     
     
