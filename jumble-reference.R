@@ -5,9 +5,7 @@
     suppressPackageStartupMessages(library(data.table))
     suppressPackageStartupMessages(library(stringr))
     suppressPackageStartupMessages(library(GenomicRanges))
-    suppressPackageStartupMessages(library(org.Hs.eg.db))
-    suppressPackageStartupMessages(library(TxDb.Hsapiens.UCSC.hg19.knownGene))
-    #suppressPackageStartupMessages(library(csaw))
+    #suppressPackageStartupMessages(library(biomaRt))
     suppressPackageStartupMessages(library(BSgenome.Hsapiens.UCSC.hg19))
     suppressPackageStartupMessages(library(BSgenome))
     suppressPackageStartupMessages(library(Repitools))
@@ -15,8 +13,7 @@
     suppressPackageStartupMessages(library(VariantAnnotation))
     suppressPackageStartupMessages(library(doParallel))
     suppressPackageStartupMessages(library(MASS))
-    #suppressPackageStartupMessages(library(rtracklayer))
-    #suppressPackageStartupMessages(library(rospca))
+
 }
 # Options ------------------------------------------------------------
 
@@ -95,108 +92,69 @@ targets[width!=min(width),is_target:=F]
 
 
 # Gene annotation ------------------------------------------------------------
+cancergenes_clinseq <- fread('~/Analysis/genes_and_exons/ANNOT_FOR_CURATOR.txt')
 
-mygenes <- c("ASXL1", "JAK2", "FANCA", "SDHB", "SDHC", "BMPR1A", "SDHD", 
-  "POT1", "FANCM", "EPCAM", "GREM1", "PRSS1", "RECQL", "PHOX2B", 
-  "FH", "EP300", "PAX5", "PDCD1", "CD274", "JAK1", "MLH3", "NKX3-1", 
-  "SPEN", "CDC27", "RAD52", "CHD1", "EZH2", "MED12", "PIK3CG", 
-  "PMS1", "SOX9", "HLA-C", "CDKN2C", "AR", "MSH6", "FGFR2", "MSH2", 
-  "PALB2", "MTOR", "ATR", "BAP1", "CHEK2", "CDKN1B", "CTNNB1", 
-  "DICER1", "ERCC2", "FBXW7", "GNAS", "VHL", "KEAP1", "ARID1A", 
-  "KDM6A", "KMT2D", "MAP3K1", "MEN1", "NBN", "PMS2", "PRKAR1A", 
-  "SMARCA4", "ARAF", "ATRX", "BARD1", "KMT2C", "RNF43", "FOXA1", 
-  "MAP2K4", "PIK3R1", "AXIN2", "BRIP1", "CDK12", "MUTYH", "NCOR1", 
-  "NF2", "SMAD2", "CTCF", "CYLD", "GATA3", "NOTCH1", "TGFBR2", 
-  "ZFHX3", "B2M", "FAT1", "TBX3", "CREBBP", "MITF", "PBRM1", "SETD2", 
-  "WT1", "IL6ST", "ARID2", "EPHA3", "RAD51D", "CIC", "KDM5C", "MGA", 
-  "MRE11", "MSH3", "NOTCH2", "PPM1D", "SDHA", "CASP8", "KMT2A", 
-  "RAD50", "RAD51C", "STAG2", "POLQ", "CHD4", "LZTR1", "AXIN1", 
-  "FUBP1", "HLA-A", "KMT2B", "PLCG1", "PSIP1", "TCF12", "TLR4", 
-  "USP9X", "ERCC4", "FANCC", "NTRK1", "ASXL2", "LATS1", "DDX3X", 
-  "ZMYM2", "BLM", "TAF1", "GNA13", "GPS2", "HLA-B", "RASA1", "SMC3", 
-  "TRAF3", "ACVR1B", "GABRA6", "IRF2", "KEL", "CHEK1", "RAD51B", 
-  "NTRK3", "ARID5B", "CSDE1", "CYSLTR2", "ELF3", "H3F3C", "LATS2", 
-  "ARHGAP35", "ALB", "HIST1H1E", "SMC1A", "SPTA1", "CD70", "BTG2", 
-  "ATM", "BRCA1", "BRCA2", "PTEN", "NF1", "PDGFRA", "APC", "MET", 
-  "PIK3CA", "RET", "PTCH1", "ALK", "CDH1", "ERBB2", "RB1", "SMAD4", 
-  "TP53", "TSC1", "TSC2", "ESR1", "EGFR", "MLH1", "SMARCB1", "MAP2K1", 
-  "FGFR1", "RAD51", "CDKN2A", "KIT", "FGFR3", "STK11", "AMER1", 
-  "POLD1", "RBM10", "TCF7L2", "RAD21", "RECQL4", "CHD3", "SMARCA1", 
-  "COL5A1", "ZMYM3", "CDKN1A", "HGF", "RPL5", "TBL1XR1", "PLCB4", 
-  "ERCC3", "GNA11", "GNAQ", "U2AF1", "IDH2", "ERBB3", "SPOP", "ERBB4", 
-  "PIK3CB", "MAX", "MYC", "CCND1", "STAT3", "ARID1B", "NFE2L2", 
-  "PPP2R1A", "RAF1", "BCOR", "JUN", "KDR", "MAPK1", "MYCN", "RAC1", 
-  "FGFR4", "SOS1", "ACVR1", "PPP6C", "RHOA", "CBL", "ERG", "HIST1H3B", 
-  "SMAD3", "EPAS1", "GATA2", "SMO", "AKT2", "PREX2", "RHEB", "RIT1", 
-  "BCL6", "CDK6", "DAXX", "FOXL2", "HIST1H3C", "SOCS1", "RRAS2", 
-  "RXRA", "SOX17", "BCL2L11", "EIF1AX", "HIST1H1C", "CCND3", "IRF4", 
-  "MAP2K2", "PTPRS", "RICTOR", "TP63", "AKT1", "BRAF", "HRAS", 
-  "KRAS", "IDH1", "NRAS", "AKT3", "BCL10", "FOXO1", "MAP3K13", 
-  "PTPRT", "SUZ12", "AXL", "IGF1R", "KLF4", "SDHAF2", "SMARCD1", 
-  "TRAF7", "DIS3", "DNAJB1", "EIF4A2", "IRS2", "MYOD1", "PARP1", 
-  "RPTOR", "ERRFI1", "GLI1", "GSK3B", "LYN", "PIK3CD", "PRKCI", 
-  "CTLA4", "PAK7", "ANKRD11", "DNMT1", "DNMT3B", "FAM58A", "HIST1H3H", 
-  "KNSTRN", "MDC1", "MST1", "NCOA3", "PDPK1", "PLK2", "PPP4R2", 
-  "PRDM14", "RPS6KA4", "SESN2", "SPRED1", "STK19", "TGFBR1", "POLE", 
-  "CUL3", "PIK3R2", "FOXP1", "H3F3A", "PIM1", "PTPRD", "EPHB1", 
-  "GTF2I", "BRD4", "CRLF2", "ETV6", "TCF3", "TET1", "TNFRSF14", 
-  "EPHA7", "MEF2B", "RPL22", "PGR", "INPPL1", "NUP93", "ACVR2A", 
-  "TCEB1", "ELOC", "HNF1A", "CDK4", "SF3B1", "XPO1", "CBFB", "PTPN11", 
-  "CARD11", "RUNX1", "NSD1", "BCL2", "CD79B", "CEBPA", "IKZF1", 
-  "MYD88", "RARA", "TET2", "WHSC1", "NSD2", "SRSF2", "FLT3", "DNMT3A", 
-  "EWSR1", "GPR126", "PDGFRB", "ROS1", "TERT", "TMPRSS2", "COMT", 
-  "CYP2D6", "DPYD", "HOXB13", "HSD3B1", "NQO1", "TPMT", "UGT1A1", 
-  "APOBEC3B", "AR_ENHANCER", "CCNE1", "CDKN2B", "CSMD1", "DROSHA", 
-  "FANCD2", "FLT4", "GPC3", "INTS4", "LRP1B", "MCL1", "MDM2", "MDM4", 
-  "MYCL", "NKX2", "NKX3", "PARK2", "PDE4D", "SKP2", "SOX2", "SUFU", 
-  "WWOX", "ZBTB16", "MRE11A", "RAD54L", "ETV1")
-
-
+# ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", GRCh=37)
 # 
-# d <- detailRanges(ucsc_ranges, orgdb=org.Hs.eg.db,
-#                   txdb=TxDb.Hsapiens.UCSC.hg19.knownGene)
-# 
-# # targets can overlap multiple genes:
-# t <- strsplit(d$overlap,',')
-# t <- lapply(t,function(t) str_remove(t,pattern = ':.*'))
-# t <- lapply(t,function(t) paste0('<',t,'>'))
-# t <- lapply(t,function(t) paste0(t,collapse = ','))
-# 
-# targets[,gene:=''][targets$is_target==T,gene:=unlist(t)][gene=='<>',gene:='']
-# targets[targets$is_target==F,gene:='Background']
+# allgenes <- as.data.table(getBM(attributes=c('ensembl_gene_id','ensembl_exon_id','hgnc_symbol','chromosome_name','start_position','end_position'),
+#                mart = ensembl))
+#cancergenes <- allgenes[ensembl_gene_id %in% cancergenes_clinseq$ensembl_gene_id_version]
 
-mart <- fread('~/Analysis/2022-09_check_genes/mart_export.txt')
-mart <- mart[`Gene type`=='protein_coding']
-mart <- mart[`Chromosome/scaffold name` %in% c(1:22,'X','Y')]
+allgenes <- fread('~/Analysis/genes_and_exons/mart_export.txt')[`Chromosome/scaffold name` %in% c(1:22,'X','Y')]
+allexons <- 
+    fread('~/Analysis/genes_and_exons/mart_export_exons.txt')[`Chromosome/scaffold name` %in% c(1:22,'X','Y')]
 
-# If targeted seq, will use only the pre-listed genes:
-if (!wgs) mart <- mart[`Gene name` %in% mygenes | `Gene Synonym` %in% mygenes]
 
-mart <- mart[,.(ensembl_id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
+cancergenes <- allgenes[`Gene stable ID` %in% cancergenes_clinseq$ensembl_gene_id_version] #|
+                            #`Gene name` %in% cancergenes_clinseq$hugo_symbol | 
+                            #`Gene Synonym` %in% cancergenes_clinseq$hugo_symbol]
+missing <- cancergenes_clinseq[!hugo_symbol %in% cancergenes$`Gene name` & 
+                                   !ensembl_gene_id_version %in% cancergenes$`Gene stable ID`]
+cancergenes <- cancergenes[,.(ensembl_id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
+                        start=`Gene start (bp)`,end=`Gene end (bp)`,
+                        symbol=`Gene name`)]
+cancergenes <- unique(cancergenes)
+cancergenes[,type:='A']
+cancergenes[ensembl_id %in% cancergenes_clinseq[ANNOT=='ONCO']$ensembl_gene_id_version,type:='O']
+cancergenes[ensembl_id %in% cancergenes_clinseq[ANNOT=='TSG']$ensembl_gene_id_version,type:='T']
+
+cancerexons <- allexons[`Gene stable ID` %in% cancergenes$ensembl_id,.(ensembl_id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
+                              exon=`Exon rank in transcript`,
+                              start=`Exon region start (bp)`,end=`Exon region end (bp)`,
+                              symbol=`Gene name`)]
+
+
+allgenes <- allgenes[,.(ensembl_id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
                 start=`Gene start (bp)`,end=`Gene end (bp)`,
-                symbol=`Gene name`)]#,synonym=`Gene Synonym`
-mart <- unique(mart)
+                symbol=`Gene name`)]
+allgenes <- unique(allgenes)
 
 # Add T_E_intergenic and AR_enhancer to gene table
-#mart[symbol %in% c('TMPRSS2','ERG')]
-te_int <- data.table(ensembl_id=NA,chromosome=21,start=40033704,end=42836478,symbol='T_E_intergenic')
-mart <- rbind(mart,te_int)
+#allgenes[symbol %in% c('TMPRSS2','ERG')]
+#te_int <- data.table(ensembl_id=NA,chromosome=21,start=40033704,end=42836478,symbol='T_E_intergenic')
+#allgenes <- rbind(allgenes,te_int)
 
-# Add AR enhancer to gene table
+# Add AR enhancer to gene/exon table
 #ggplot(targets[chromosome=='X' & is_target & start>60e6 & end<70e6]) + geom_point(aes(x=start,y=0,col=gene))
 #targets[chromosome=='X' & is_target & start>65.5e6 & end<66.5e6]
-ar_enh <- data.table(ensembl_id=NA,chromosome='X',start=66100404,end=66160987,symbol='AR_enhancer')
-mart <- rbind(mart,ar_enh)
+ar_enh <- data.table(ensembl_id='AR_enhancer',chromosome='X',start=66100404,end=66160987,symbol='AR_enhancer',type='O')
+cancergenes <- rbind(cancergenes,ar_enh)
 
-generanges <- makeGRangesFromDataFrame(mart)
+ar_enh <- data.table(ensembl_id='AR_enhancer',chromosome='X',exon=1,start=66100404,end=66160987,symbol='AR_enhancer')
+cancerexons <- rbind(cancerexons,ar_enh)
+
+
+
+# Make ranges objects
+generanges <- makeGRangesFromDataFrame(cancergenes)
+exonranges <- makeGRangesFromDataFrame(cancerexons)
+
 binranges <- counts$ranges
 
 # Compute overlap table
 gene_overlap <- as.data.table(findOverlaps(binranges,generanges))
-# Remove background matches
-gene_overlap <- gene_overlap[queryHits %in% which(targets$is_target)][,bin:=queryHits][,gene:=subjectHits]
 # Add symbol to overlap table
-gene_overlap[,symbol:=mart[subjectHits]$symbol]
+gene_overlap[,symbol:=cancergenes[subjectHits]$symbol]
 
 targets[,gene:='']
 for (i in unique(gene_overlap$queryHits)) {
@@ -204,39 +162,42 @@ for (i in unique(gene_overlap$queryHits)) {
 }
 
 
-# # label some genes
-# label_genes <- c('AR','ATM','BRCA2','PTEN','RB1','ERG','CDK12','TMPRSS2')
-# targets[,label:=as.character(NA)]
-# for (g in label_genes) targets[str_detect(gene,paste0('<',g,'>')),label:=g]
-# 
-# # remove the <>
-# targets[,gene:=str_remove_all(gene,'[<>]')]
+# Exons overlap table
+gene_overlap <- as.data.table(findOverlaps(binranges,exonranges))
+# Add symbol to overlap table
+gene_overlap[,symbol:=cancerexons[subjectHits]$symbol]
+
+targets[,type:='']
+for (i in unique(gene_overlap$queryHits)) {
+    targets[i,type:='exonic']
+}
+
+# Background
+targets[is_target==F,type:='background']
 
 # GC content ------------------------------------------------------------
 
-ucsc_ranges <- counts$ranges[targets$is_target==T]
+ucsc_ranges <- counts$ranges#[targets$is_target==T]
 seqlevelsStyle(ucsc_ranges) <- "UCSC"
 
 targets[,gc:=as.double(NA)]
-targets[is_target==T]$gc <- gcContentCalc(ucsc_ranges , organism=Hsapiens)
+targets[is_target %in% c(T,F)]$gc <- gcContentCalc(ucsc_ranges , organism=Hsapiens)
 
 # Mappability ------------------------------------------------------------
 
 targets[,map:=as.double(NA)]
-targets[is_target==T]$map <- mappabilityCalc(ucsc_ranges , organism=Hsapiens)
+targets[is_target %in% c(T,F)]$map <- mappabilityCalc(ucsc_ranges , organism=Hsapiens)
 
 
 # Backbone definition ------------------------------------------------------------
 
 set.seed(25) # <------------------ To be reproducible.
-max_backbone_in_gene <- 20 #  <--- applies to targeted
-
-
-if (wgs) targets[,is_backbone:=chromosome %in% 1:22]
+max_backbone_in_gene <- 100 #  <--- applies to some
 
 if (!wgs) {
-    targets[,is_backbone:=chromosome %in% 1:22 & gene=='']
-    for (g in unique(targets$gene)) {
+    genes <- c('ATM','BRCA1','BRCA2','PTEN','RB1')
+    targets[,is_backbone:=chromosome %in% 1:22 & !gene %in% genes]
+    for (g in genes) {
         ix=targets[gene==g & chromosome %in% as.character(1:22),.I]
         n <- length(ix)
         if (n>max_backbone_in_gene) ix=ix[order(rnorm(n))][1:max_backbone_in_gene]
@@ -245,12 +206,12 @@ if (!wgs) {
 }
 
 
-# Templates ready ------------------------------------------------------------
+# Template ready ------------------------------------------------------------
 target_template <- copy(targets)
 
 
 # Default SNP allele bias
-# Cannot be used where there are no allele
+# Cannot be used where there are no alleles
 # # if no VCF files are available, use these values for SNP allele bias.
 # default_bias <- data.table(
 #     type=c("C>T", "G>A", "T>A", "A>G", "G>T", "other",
@@ -611,8 +572,8 @@ threshold <- median(targets$count) / 0.05
 keep_targets <- targets[,median(count),by=bin][V1 < threshold]
 targets <- targets[bin %in% keep_targets$bin]
 
-# Mappability 0 removed
-targets <- targets[is_target==F | map>0]
+# Low mappability removed
+targets <- targets[map>0.6]
 
 
 min1 <- function(data) {
@@ -708,8 +669,6 @@ reference$keep <- unique(targets$bin)
 reference$targets_ref <- tmat #tpca$x
 reference$targets_ref_short <- tmat_short #tpca_short$x
 
-
-
 reference$median <- targets[sample==sample[1]]$refmedian
 reference$median_short <- targets[sample==sample[1]]$refmedian_short
 
@@ -717,6 +676,10 @@ if (exists('snp_table')) {
     reference$snp_rlm_model <- snp_rlm_model
     reference$snp_coeff_table <- snp_coeff_table
 }
+
+#reference$allgenes <- allgenes
+reference$cancergenes <- cancergenes
+reference$cancerexons <- cancerexons
 
 # Save ------------------------------------------------------------
 
@@ -726,3 +689,4 @@ saveRDS(reference,paste0(opt$output_folder,'/',
                          str_remove(name,'.*/'),
                          '.reference.RDS'))
 
+print(paste(name,'done.'))

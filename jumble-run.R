@@ -1,8 +1,8 @@
 #!/usr/bin/env Rscript
 
-jumble_version <- '0.2.0'
+jumble_version <- '0.2.1'
 
-# Markus Mayrhofer 2022
+# Markus Mayrhofer 2022-2023
 
 # Dependencies ------------------------------------------------------------
 {
@@ -95,6 +95,7 @@ targets[,farthest:=left][right>left,farthest:=right]
 targets[,is_tiled:=F][farthest<250,is_tiled:=T]
 targets[,left:=NULL][,right:=NULL][,farthest:=NULL]
 tiled_genes <- as.data.table(sort(table(targets[is_tiled==T]$gene),decreasing = T))
+targets[is_tiled==T & type!='exonic',type:='tiled']
 
 # Add counts
 targets[,count:=counts$count]
@@ -574,6 +575,7 @@ getsegs <- function(targets, logratio) {
     segments[,start_pos:=targets$start[ceiling(start)]]
     segments[,end_pos:=targets$end[floor(end)]]
     segments[,genes:='']
+    segments[,relevance:='']
     
     targets[,segment:=as.numeric(NA)]
     
@@ -581,10 +583,10 @@ getsegs <- function(targets, logratio) {
         ix <- ceiling(segments[i]$start):floor(segments[i]$end)
         targets[ix,segment:=i]
         segments[i,mean:=median(logratio[ix],na.rm = T)] # <----------------- here, value per segment is set
-        genes <- paste0(unique(targets[ix][gene!='']$gene),collapse = ',')
-        genes <- unique(strsplit(genes,',')[[1]])
-        genes <- genes[!genes %in% c('','Background')]
-        if (length(genes)>0) segments[i]$genes <- paste(genes,collapse = ', ')
+        # genes <- paste0(unique(targets[ix][gene!='']$gene),collapse = ',')
+        # genes <- unique(strsplit(genes,',')[[1]])
+        # genes <- genes[!genes %in% c('','Background')]
+        # if (length(genes)>0) segments[i]$genes <- paste(genes,collapse = ', ')
         
         # adjust segment start and end to bin number, rather than bin order
         ix <- ceiling(segments[i]$start)
@@ -607,35 +609,67 @@ segments <- getsegs((targets), targets$log2)
 targets[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 segments[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
 
+# Add gene related information to segments
+cancergenes <- reference$cancergenes
+cancerexons <- reference$cancerexons
+
+segranges <- makeGRangesFromDataFrame(segments[,.(chromosome,start=start_pos,end=end_pos)])
+generanges <- makeGRangesFromDataFrame(cancergenes)
+exonranges <- makeGRangesFromDataFrame(cancerexons)
+
+gene_overlap <- as.data.table(findOverlaps(segranges,generanges))
+exon_overlap <- as.data.table(findOverlaps(segranges,exonranges))
+
+for (i in 1:nrow(segments)) {
+    gene_ix <- gene_overlap[queryHits==i]$subjectHits
+    
+    if (length(gene_ix)>0) {
+        genetable <- cancergenes[gene_ix,.(ensembl_id,symbol,type,exonic=F,label='')]
+        label <- paste(genetable$symbol,collapse=',')
+        segments[i,genes:=label]
+        
+        exon_ix <- exon_overlap[queryHits==i]$subjectHits
+        
+        if (length(exon_ix)>0) {
+            exontable <- cancerexons[exon_ix]
+            genetable[ensembl_id %in% exontable$ensembl_id,exonic:=T]
+        }
+        genetable[exonic==T,label:=paste0(symbol,'|',type)]
+        
+        label <- paste(genetable[exonic==T]$label,collapse=',')
+        segments[i,relevance:=label]
+    }
+}
+
 
 # Gene+segment table ------------------------------------------------------------
 
-segments_temp <- segments[,.(segment=paste(1:.N),type='segment',chromosome,start=start_pos,end=end_pos,
-                             length=end_pos-start_pos,
-                             bins=nbrOfLoci,genes,mean)]
+# segments_temp <- segments[,.(segment=paste(1:.N),type='segment',chromosome,start=start_pos,end=end_pos,
+#                              length=end_pos-start_pos,
+#                              bins=nbrOfLoci,genes,relevance,mean)]
 
-genes <- targets[is_target==T,.(segment='',type='gene',chromosome,start,end,length=NA,bins=0,
-                                genes=gene,log2,
-                                mean=0)]
+# genes <- targets[is_target==T,.(segment='',type='gene',chromosome,start,end,length=NA,bins=0,
+#                                 genes=gene,log2,
+#                                 mean=0)]
 
 
-for (i in 1:nrow(segments)) {
-    ix <- ceiling(segments[i]$start):floor(segments[i]$end)
-    genes[ix]$segment <- i
-}
-genes <- genes[genes!='']
-genes[,segment:=paste(unique(segment),collapse = ','),by=genes]
-genes[,start:=min(start),by=genes]
-genes[,end:=max(end),by=genes]
-genes[,length:=end-start]
-genes[,bins:=.N,by=genes]
-suppressWarnings(genes[,mean:=round(median(log2,na.rm=T),3),by=genes])
-
-genes[,log2:=NULL]
-
-suppressWarnings(
-    segments_genes <- rbind(segments_temp,unique(genes))[order(as.numeric(chromosome),start)]
-)
+# # for (i in 1:nrow(segments)) {
+# #     ix <- ceiling(segments[i]$start):floor(segments[i]$end)
+# #     genes[ix]$segment <- i
+# # }
+# genes <- genes[genes!='']
+# genes[,segment:=paste(unique(segment),collapse = ','),by=genes]
+# genes[,start:=min(start),by=genes]
+# genes[,end:=max(end),by=genes]
+# genes[,length:=end-start]
+# genes[,bins:=.N,by=genes]
+# suppressWarnings(genes[,mean:=round(median(log2,na.rm=T),3),by=genes])
+# 
+# genes[,log2:=NULL]
+# 
+# suppressWarnings(
+#     segments_genes <- rbind(segments_temp,unique(genes))[order(as.numeric(chromosome),start)]
+# )
 
 
 
@@ -655,20 +689,25 @@ if (snp_allele_ratio) saveRDS(snp_table,file = paste0(opt$output_dir,'/',clinbar
 # cnr:  chromosome      start   end     gene    depth   log2    weight ()
 cnr <- targets[!is.na(log2),.(chromosome=as.character(chromosome),start,end,gene,
                               depth=round(count/width*200,3),log2,weight=1,
-                              gc,count)][gene=='',gene:='-']
+                              gc,count,type)][gene=='',gene:='-']
 
-#fwrite(x = cnr,file = paste0(opt$output_dir,'/',clinbarcode,'.cnr'),sep = '\t')
+fwrite(x = cnr,file = paste0(opt$output_dir,'/',clinbarcode,'.cnr'),sep = '\t')
 
 # cns:  chromosome      start   end     gene    log2    depth   probes  weight
-cns <- segments_genes[type=='segment',.(chromosome,start,end,gene=genes,log2=mean,depth=mean,probes=bins)]
-#fwrite(x = cns,file = paste0(opt$output_dir,'/',clinbarcode,'.cns'),sep = '\t')
+cns <- segments[,.(chromosome,start=start_pos,end=end_pos,
+                   gene=genes,
+                   log2=round(mean,2),
+                   depth=round(2^mean,2),
+                   probes=nbrOfLoci,
+                   relevance)]
+fwrite(x = cns,file = paste0(opt$output_dir,'/',clinbarcode,'.cns'),sep = '\t')
 
 
 # DNAcopy segment file:
 # ID    chrom   loc.start       loc.end num.mark        seg.mean        C
 seg <- segments[,.(ID=name,chrom=chromosome,loc.start=start_pos,loc.end=end_pos,num.mark=nbrOfLoci,seg.mean=mean,C=NA)]
 seg[,chrom:=str_replace(chrom,'Y','24')][,chrom:=str_replace(chrom,'X','23')][,chrom:=as.numeric(chrom)]
-#fwrite(x = seg,file = paste0(opt$output_dir,'/',clinbarcode,'_dnacopy.seg'),sep = '\t')
+fwrite(x = seg,file = paste0(opt$output_dir,'/',clinbarcode,'_dnacopy.seg'),sep = '\t')
 
 
 # Count file output ------------------------------------------------------------
