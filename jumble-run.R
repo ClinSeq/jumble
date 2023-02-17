@@ -937,8 +937,8 @@ if (!this_is_wgs) {
 
 targets[log2 < -4, log2:=-4]
 targets[log2 > 7, log2:=7]
-#targets[log2x < -4, log2x:=-4]
-#targets[log2x > 7, log2x:=7]
+targets[log2_short < -4, log2_short:=-4]
+targets[log2_short > 7, log2_short:=7]
 
 
 
