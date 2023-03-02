@@ -229,6 +229,7 @@ if (length(vcf_files) > 0) {
 if (wgs) allcounts[[1]]$target_bed_file <- 'wgs'
 reference <- allcounts[[1]][c("target_bed_file","chromlength","ranges")]
 reference$date <- date()
+reference$version <- jumble_version
 reference$samples <- unique(targets$sample)
 reference$target_template <- targets
 
