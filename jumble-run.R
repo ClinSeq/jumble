@@ -42,13 +42,17 @@ opt <- parse_args(OptionParser(option_list = option_list))
 # Reference file ------------------------------------------------------------
 
 reference <- readRDS(opt$reference_file)
+
+#if (jumble_version != reference$version) stop('Reference and Jumble versions do not match.')
+
+
 counts_template <- reference[c("target_bed_file","chromlength","ranges")]
 
 this_is_wgs <- reference$target_bed_file=='wgs'
 
 
 
-# save.image('ws.Rdata')
+#save.image('ws.Rdata')
 # stop()
 
 
@@ -142,6 +146,8 @@ this_is_wgs <- reference$target_bed_file=='wgs'
 
 set.seed(25) # <------------------ To be reproducible.
 max_backbone_in_gene <- 10 #  <--- applies to some
+
+targets[,is_backbone:=chromosome %in% 1:22]
 
 if (!this_is_wgs) {
     genes <- c('ATM','BRCA2','PTEN','RB1')
@@ -492,7 +498,7 @@ set.seed(25)
 pca <- as.data.table(prcomp(mat[,-1],center = F,scale. = F)$x)
 pca$keep <- T
 
-for (pc in colnames(pca)) {
+for (pc in colnames(pca)[-ncol(pca)]) {
     fact <- ifelse(pc %in% c('PC1','PC2'),4,4)
     sd <- sd(pca[[pc]])
     pca[pca[[pc]] < -sd*fact, keep:=F]
@@ -996,7 +1002,8 @@ getsegs <- function(targets, logratio) {
         segments[i,end:=targets[ix]$bin]
     }
     
-    
+    #targets[,segmedian:=median(log2,na.rm=T),by=segment]
+    #targets[,log2:=log2-median(segmedian[is.backbone==T])]
     
     
     return(segments)
