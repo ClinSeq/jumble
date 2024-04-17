@@ -847,7 +847,6 @@ if (T) {
 
 # Output ------------------------------------------------------------
 
-
 # Reintroduce the removed bins
 targets <- merge(alltargets,targets,by=colnames(alltargets),all=T)[order(bin)]
 
