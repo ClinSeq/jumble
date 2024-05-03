@@ -202,8 +202,8 @@ max_in_b <- 25
 targets[,is_backbone:=chromosome %in% c(1:22,'X')]
 
 if (!this_is_wgs) {
-    genes <- unique(targets[gene!='']$gene)
-    #genes <- genes %in% c('BRCA2','PTEN') # To select just some genes for this restriction.
+    genes <- unique(targets[gene!='' & chromosome %in% 1:22]$gene)
+    genes <- genes %in% c('BRCA2','PTEN') # To select just some genes for this restriction.
     for (g in genes) {
         genebins <- targets[gene==g]$bin
         n <- length(genebins)
@@ -299,18 +299,20 @@ targets[,rawLR_short:=rawLR_short-median(rawLR_short[is_backbone]),by=c('sample'
 ## X-Y chromosome correct ------------------------------------------------------------
 
 if (T) {
-    # Double X values in samples where their median implies male
-    targets[,xmedian:=median(rawLR[chromosome=='X']),by=sample]
+    # Doctor the X values in samples where their median implies male
+    targets[,xmedian:=median(rawLR[chromosome=='X' & is_tiled==F]),by=.(sample,is_target)]
+    targets[,xmedian_short:=median(rawLR_short[chromosome=='X' & is_tiled==F]),by=.(sample,is_target)]
     targets[,male:=2^xmedian < .75] # assign gender
 
     targets[,nonPA:=chromosome %in% c('X') & end>2.70e6 & start<154.93e6] # hard coded PA
 
+    # adjust to the median
     if (length(unique(targets[male==T]$sample))>0) { # if at least 1 male
         targets[chromosome=='X' & male==T & nonPA,rawLR:=rawLR+1]
         targets[chromosome=='X' & male==T & nonPA,rawLR_short:=rawLR_short+1]
     }
 
-    # Double Y values where their median implies male
+    # Doctor Y values where their median implies male
     targets[,ymedian:=median(rawLR[chromosome=='Y']),by=sample] # median by sample
     targets[,male:=2^ymedian > .25] # assign gender based on Y
 
@@ -647,7 +649,7 @@ jcorrect <- function(temp,train_ix=NULL, mult=T) {
     
     
     # Dynamically construct formula
-    formula_str <- paste("lr ~ ", paste0("PC", 1:min(20,pcs), collapse = "+"))
+    formula_str <- paste("lr ~ ", paste0("PC", 1:min(50,pcs), collapse = "+"))
     formula <- as.formula(formula_str)
     rlm_temp <- rlm(formula, data=temp,
                     subset = train_ix)
@@ -738,6 +740,7 @@ targets[chromosome=='Y',log2:=NA]
 targets[chromosome=='Y',log2_short:=NA]
 
 
+#save.image('ws.Rdata')
 ## Adjust X to background ------------------------------------------------------------
 
 if (!this_is_wgs) try(
