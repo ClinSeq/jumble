@@ -196,10 +196,10 @@ use_medium_fraglength <-
 
 ## Backbone definition ------------------------------------------------------------
 
-set.seed(25) # <------------------ To be reproducible.
-max_in_b <- 25
+set.seed(25)
+max_in_b <- 10
 
-targets[,is_backbone:=chromosome %in% c(1:22,'X')]
+targets[,is_backbone:=chromosome %in% c(1:22)]
 
 if (!this_is_wgs) {
     genes <- unique(targets[gene!='' & chromosome %in% 1:22]$gene)
@@ -642,7 +642,7 @@ jcorrect <- function(temp,train_ix=NULL, mult=T) {
     
     pcs <- sum(str_detect(colnames(temp),'^PC'))
     
-    if (pcs > 50) pcs <- 50
+    #if (pcs > 50) pcs <- 50
     
     
     bins <- nrow(temp)
