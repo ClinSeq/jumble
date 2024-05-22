@@ -941,13 +941,13 @@ if (T) {
         
         size <- 1#; if (this_is_wgs) size <- 2
         
-        pointcolor <- '#00000001'
-        
+        pointcolor <- '#000000'
+        alpha <- .3
         
         targets[,label:=type][label=='tiled',label:='dense'][label=='target',label:='sparse']
         
         
-        alpha <- .5
+        
         if (this_is_wgs) alpha <- .2
         
         
