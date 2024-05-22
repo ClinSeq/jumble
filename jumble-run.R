@@ -110,7 +110,7 @@ use_medium_fraglength <-
 {
     targets <- reference$target_template
     targets[,chromosome:=str_remove(chromosome,'^chr')]
-
+    
     ## Mark tiled
     targets[,left:=c(Inf,abs(diff(mid)))]
     targets[,right:=c(abs(diff(mid)),Inf)]
@@ -119,7 +119,7 @@ use_medium_fraglength <-
     targets[,left:=NULL][,right:=NULL][,farthest:=NULL]
     tiled_genes <- as.data.table(sort(table(targets[is_tiled==T]$gene),decreasing = T))
     if (sum(targets$is_tiled==T) > 500) targets[is_tiled==T,type:='tiled']
-
+    
 }
 
 #save.image('ws.Rdata')
@@ -139,59 +139,59 @@ use_medium_fraglength <-
     #                                    !ensembl_gene_id_version %in% cancergenes$`Gene stable ID`]
     missing <- cancergenes_clinseq[!hugo_symbol %in% cancergenes$`Gene name`]
     
-
-
+    
+    
     # Remove duplicate rows
     cancergenes <- cancergenes[,.(id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
                                   start=`Gene start (bp)`,end=`Gene end (bp)`,
                                   symbol=`Gene name`)]
     cancergenes <- unique(cancergenes)
-
+    
     # Add ambigous, oncogene or tsg
     cancergenes[,type:='A']
     cancergenes[id %in% cancergenes_clinseq[ANNOT=='ONCO']$ensembl_gene_id_version,type:='O']
     cancergenes[symbol %in% cancergenes_clinseq[ANNOT=='ONCO']$hugo_symbol,type:='O']
     cancergenes[id %in% cancergenes_clinseq[ANNOT=='TSG']$ensembl_gene_id_version,type:='T']
     cancergenes[symbol %in% cancergenes_clinseq[ANNOT=='TSG']$hugo_symbol,type:='T']
-
+    
     # Extract related exons
     cancerexons <- unique(allexons[`Gene stable ID` %in% cancergenes$id,
-                            .(id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
-                              #exon=`Exon rank in transcript`,
-                              start=`Exon region start (bp)`,end=`Exon region end (bp)`)])
+                                   .(id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
+                                     #exon=`Exon rank in transcript`,
+                                     start=`Exon region start (bp)`,end=`Exon region end (bp)`)])
     allexons <- unique(allexons[,
-                            .(id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
-                              #exon=`Exon rank in transcript`,
-                              start=`Exon region start (bp)`,end=`Exon region end (bp)`)])
-
+                                .(id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
+                                  #exon=`Exon rank in transcript`,
+                                  start=`Exon region start (bp)`,end=`Exon region end (bp)`)])
+    
     # All genes
     allgenes <- allgenes[,.(id=`Gene stable ID`,chromosome=`Chromosome/scaffold name`,
                             start=`Gene start (bp)`,end=`Gene end (bp)`,
                             symbol=`Gene name`)]
     allgenes <- unique(allgenes)
-
-
+    
+    
     # Make ranges objects
     cancergeneranges <- makeGRangesFromDataFrame(cancergenes)
     generanges <- makeGRangesFromDataFrame(allgenes)
     exonranges <- makeGRangesFromDataFrame(allexons)
     binranges <- makeGRangesFromDataFrame(targets)
-
-
+    
+    
     # Gene overlap table
     gene_overlap <- as.data.table(findOverlaps(binranges,generanges))
     # Add symbol to overlap table
     gene_overlap[,symbol:=allgenes[subjectHits]$symbol]
-
+    
     for (i in unique(gene_overlap$queryHits)) {
         targets[i,gene:=paste0(gene_overlap[queryHits==i]$symbol,collapse = ',')]
     }
-
+    
     # Exons overlap table
     exon_overlap <- as.data.table(findOverlaps(binranges,exonranges))
     targets[unique(exon_overlap$queryHits),type:='exonic']
     targets[is_target==F,type:='background']
-
+    
 }
 
 ## Backbone definition ------------------------------------------------------------
@@ -229,18 +229,18 @@ target_template <- targets
 allcounts <- reference$allcounts
 targetlist <- NULL
 for (i in 1:length(allcounts)) {
-
+    
     counts <- allcounts[[i]]
     targets <- copy(target_template)
     name <- paste0('ref_',i)
     targets$sample <- name
-
-
+    
+    
     # Add counts
     targets[,count:=counts$count]
     if (use_medium_fraglength) targets[,count:=counts$count_medium]
     targets[,count_short:=counts$count_short]
-
+    
     targetlist[[i]] <- targets
 }
 
@@ -303,28 +303,28 @@ if (T) {
     targets[,xmedian:=median(rawLR[chromosome=='X' & is_tiled==F]),by=.(sample,is_target)]
     targets[,xmedian_short:=median(rawLR_short[chromosome=='X' & is_tiled==F]),by=.(sample,is_target)]
     targets[,male:=2^xmedian < .75] # assign gender
-
+    
     targets[,nonPA:=chromosome %in% c('X') & end>2.70e6 & start<154.93e6] # hard coded PA
-
+    
     # adjust to the median
     if (length(unique(targets[male==T]$sample))>0) { # if at least 1 male
         targets[chromosome=='X' & male==T & nonPA,rawLR:=rawLR+1]
         targets[chromosome=='X' & male==T & nonPA,rawLR_short:=rawLR_short+1]
     }
-
+    
     # Doctor Y values where their median implies male
     targets[,ymedian:=median(rawLR[chromosome=='Y']),by=sample] # median by sample
     targets[,male:=2^ymedian > .25] # assign gender based on Y
-
+    
     if (length(unique(targets[male==T]$sample))>0) { # if at least 1 male
         targets[male==T & chromosome=='Y' & end<28.79e6,rawLR:=rawLR+1] # hard coded PA
         targets[male==T & chromosome=='Y' & end<28.79e6,rawLR_short:=rawLR_short+1]
     }
-
+    
     # Y values set to NA where X median implied female
     targets[chromosome=='Y' & male==F,rawLR:=NA]
     targets[chromosome=='Y' & male==F,rawLR_short:=NA]
-
+    
 }
 
 ## Bin median correct ------------------------------------------------------------
@@ -445,12 +445,12 @@ snp_allele_ratio <- FALSE
 input <- opt$snp_vcf
 if (!is.null(input)) {
     snp_allele_ratio <- TRUE
-
+    
     if (!str_detect(input,'.[vV][cC][fF]$') & !str_detect(input,'.[vV][cC][fF].[gG][zZ]$'))
         stop("SNP vcf file appears incorrect")
-
+    
     vcf=readVcf(input)
-
+    
     # If there is more than one sample in the VCF, which one to use?
     ix <- 1 # base assumption: first is this sample
     names <- colnames(vcf)
@@ -458,21 +458,21 @@ if (!is.null(input)) {
         # but if one name in the VCF fits the sample name better, use it:
         check <- which(str_detect(name,names))
         if (length(check)==1) ix <- check
-
+        
         # Keep only this sample
         vcf <- vcf[,ix]
-
+        
     }
-
-
+    
+    
     # remove SNPs that do not have 2 alleles
     alleles <- as.data.table(table(as.data.table(alt(vcf))$group))$N
     vcf <- vcf[alleles==1 & sapply(geno(vcf)$AD,length)==2]
-
+    
     name <- colnames(vcf)
-
+    
     g <- geno(vcf)
-
+    
     # Prepare table of SNPs for this sample
     rr <- rowRanges(vcf)
     snp_table <- as.data.table(rr)[,1:3][,chromosome:=str_remove(seqnames,'^chr')][,c(4,2,3)]
@@ -482,13 +482,13 @@ if (!is.null(input)) {
             id=names(vcf)),
         snp_table
     )
-
+    
     # Get alleles
     snp_table$ref_allele <- as.character(ref(vcf))
     alt_allele <- as.data.table(alt(vcf))[, .(values = list(value)), by = group][,values]
     snp_table$n_alt_alleles <- sapply(alt_allele, length)
     snp_table$alt_allele <- sapply(alt_allele, "[[", 1)
-
+    
     # Get SNP type
     # from <- rep('C/G',length(vcf)); from[snp_table$ref_allele %in% c('A','T')] <- 'A/T'
     # to <- rep('C/G',length(vcf)); to[snp_table$alt_allele %in% c('A','T')] <- 'A/T'
@@ -496,26 +496,26 @@ if (!is.null(input)) {
     snp_table[!str_detect(alt_allele,'^[ACGT]$'),alt_allele:='other']
     snp_table[,type:=paste0(ref_allele,'>',alt_allele)]
     snp_table[str_length(ref_allele)!=1 | str_length(alt_allele)!=1]$type <- 'other'
-
+    
     # Get read counts
     snp_table$AD <- sapply(g$AD, "[[", 2)
     snp_table$RD <- sapply(g$AD, "[[", 1)
     snp_table$DP=snp_table$AD+snp_table$RD
     snp_table[,logDP:=log2(DP)]
-
+    
     # Compute raw allele ratio
     raw_allele_ratio <- unname(round(snp_table$AD/snp_table$DP,4))
     raw_allele_ratio[is.nan(raw_allele_ratio)] <- 0
     snp_table$allele_ratio <- raw_allele_ratio
-
+    
     # SNP id with details
     snp_table[,snp:=paste(id,ref_allele,alt_allele)]
-
+    
     # Overlap with bins, drop SNPs not on targets
     overlap <- findOverlaps(makeGRangesFromDataFrame(snp_table),ranges)
     snp_table[queryHits(overlap),bin:=subjectHits(overlap)]
     snp_table <- snp_table[bin %in% targets[is_target==T]$bin]
-
+    
 }
 
 
@@ -608,8 +608,6 @@ mat_short <- mat_short[!bin %in% remove]
 bins_outliers_removed <- mat$bin
 
 
-
-
 ## PCA 2: latent features ------------------------------------------------------------
 
 targetbins <- target_template[is_target==T]$bin # the ontarget
@@ -649,14 +647,14 @@ jcorrect <- function(temp,train_ix=NULL, mult=T) {
     
     
     # Dynamically construct formula
-    formula_str <- paste("lr ~ ", paste0("PC", 1:min(50,pcs), collapse = "+"))
+    formula_str <- paste("lr ~ ", paste0("PC", 1:min(12,pcs), collapse = "+"))
     formula <- as.formula(formula_str)
     rlm_temp <- rlm(formula, data=temp,
                     subset = train_ix)
     temp[,lr:=lr-predict(rlm_temp,temp)]
     
     # Sequential
-    if (T) for (i in 1:(pcs)) {
+    if (F) for (i in 1:(pcs)) {
         temp$thispc=temp[[paste0('PC',i)]]
         rlm_temp <- rlm(lr ~ poly(thispc,degree = 1), data=temp,
                         subset = train_ix)
@@ -704,7 +702,7 @@ targets[ix,log2_short:=jcorrect(temp,targets[ix]$is_backbone)]
 
 
 if (!this_is_wgs) {
-
+    
     if (any(targets$is_target==F)) {
         ix <- targets$is_target
         # standard bg
@@ -715,7 +713,7 @@ if (!this_is_wgs) {
             gene=targets[!ix]$gene,
             bgpca)
         targets[!ix,log2:=jcorrect(temp,targets[!ix]$is_backbone)]
-
+        
         # bg short
         temp <- cbind(data.table(
             lr=targets[!ix]$rawLR_short),
@@ -724,7 +722,7 @@ if (!this_is_wgs) {
             gene=targets[!ix]$gene,
             bgpca_short)
         targets[!ix,log2_short:=jcorrect(temp,targets[!ix]$is_backbone)]
-
+        
     }
 }
 
@@ -750,9 +748,9 @@ if (!this_is_wgs) try(
         temp[,pos_1M:=1*round(start / 1e6)]
         temp[,bg:=as.numeric(NA)][,bg:=median(log2[is_target==F],na.rm = T),by=pos_1M]
         temp[,tg:=as.numeric(NA)][,tg:=median(log2[is_target==T & is_tiled==F],na.rm = T),by=pos_1M]
-
+        
         temp <- unique(temp[,.(pos_1M,bg,tg)])
-
+        
         temp[,bg_median:=runmed(bg,11,na.action = 'na.omit')]
         temp[,tg_median:=runmed(tg,11,na.action = 'na.omit')]
         temp[,dif:=bg_median-tg_median]
@@ -768,13 +766,13 @@ print('Segmentation')
 #save.image('ws.Rdata')
 
 getsegs <- function(targets, logratio) {
-
+    
     alpha <- .02
     if (this_is_wgs) {
         alpha <- 1e-5
         #if (median(targets$end-targets$start) >= 5000) alpha <- 1e-5
     }
-
+    
     segments <- segmentByCBS(y=logratio,avg='median',
                              chromosome=targets$chromosome,
                              alpha = alpha,undo=1)
@@ -783,23 +781,23 @@ getsegs <- function(targets, logratio) {
     segments[,end_pos:=targets$end[floor(end)]]
     segments[,genes:='']
     segments[,relevance:='']
-
+    
     targets[,segment:=as.numeric(NA)]
-
+    
     for (i in 1:nrow(segments)) {
         ix <- ceiling(segments[i]$start):floor(segments[i]$end)
         targets[ix,segment:=i]
         segments[i,mean:=median(logratio[ix],na.rm = T)] # <----------------- here, value per segment is set
-
-
+        
+        
         # adjust segment start and end to bin number, rather than bin order
         ix <- ceiling(segments[i]$start)
         segments[i,start:=targets[ix]$bin]
         ix <- floor(segments[i]$end)
         segments[i,end:=targets[ix]$bin]
     }
-
-
+    
+    
     return(segments)
 }
 
@@ -807,39 +805,39 @@ getsegs <- function(targets, logratio) {
 
 # Do the segmentation
 if (T) {
-
+    
     targets[,chromosome:=str_replace(chromosome,'Y','24')][,chromosome:=str_replace(chromosome,'X','23')][,chromosome:=as.numeric(chromosome)]
     segments <- getsegs(targets, targets$log2)
     targets[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
     segments[,chromosome:=as.character(chromosome)][chromosome=='23',chromosome:='X'][chromosome=='24',chromosome:='Y']
-
+    
     # Add cancer gene related information to segments
-
+    
     segranges <- makeGRangesFromDataFrame(segments[,.(chromosome,start=start_pos,end=end_pos)])
     generanges <- makeGRangesFromDataFrame(cancergenes)
     exonranges <- makeGRangesFromDataFrame(cancerexons)
-
+    
     gene_overlap <- as.data.table(findOverlaps(segranges,generanges))
     exon_overlap <- as.data.table(findOverlaps(segranges,exonranges))
-
+    
     for (i in 1:nrow(segments)) {
         gene_ix <- gene_overlap[queryHits==i]$subjectHits
-
+        
         if (length(gene_ix)>0) {
             genetable <- cancergenes[gene_ix,.(id,symbol,type,exonic=F,label='')]
             label <- paste(genetable$symbol,collapse=',')
             segments[i,genes:=label]
-
+            
             exon_ix <- exon_overlap[queryHits==i]$subjectHits
-
+            
             if (length(exon_ix)>0) {
                 exontable <- cancerexons[exon_ix]
                 genetable[id %in% exontable$id,exonic:=T]
             }
-
+            
             genetable[exonic==T,label:=symbol]
             genetable[exonic==T & type!='',label:=paste0(symbol,'|',type)]
-
+            
             label <- paste(genetable[exonic==T]$label,collapse=',')
             segments[i,relevance:=label]
         }
@@ -861,15 +859,15 @@ if (this_is_wgs) targets[,type:='bin']
 
 
 if (T) {
-
+    
     ## CNR/CNS ------
     # cnr:  chromosome      start   end     gene    depth   log2    weight ()
     cnr <- targets[!is.na(log2),.(chromosome=as.character(chromosome),start,end,gene,
                                   depth=round(count/width*200,3),log2,weight=1,
                                   gc,count,type)][gene=='',gene:='-']
-
+    
     fwrite(x = cnr,file = paste0(opt$output_dir,'/',clinbarcode,'.cnr'),sep = '\t')
-
+    
     # cns:  chromosome      start   end     gene    log2    depth   probes  weight
     cns <- segments[,.(chromosome,start=start_pos,end=end_pos,
                        gene=genes,
@@ -878,30 +876,30 @@ if (T) {
                        probes=nbrOfLoci,
                        relevance)]
     fwrite(x = cns,file = paste0(opt$output_dir,'/',clinbarcode,'.cns'),sep = '\t')
-
-
+    
+    
     ## DNAcopy segment file ----
     # ID    chrom   loc.start       loc.end num.mark        seg.mean        C
     seg <- segments[,.(ID=name,chrom=chromosome,loc.start=start_pos,loc.end=end_pos,num.mark=nbrOfLoci,seg.mean=mean,C=NA)]
     seg[,chrom:=str_replace(chrom,'Y','24')][,chrom:=str_replace(chrom,'X','23')][,chrom:=as.numeric(chrom)]
     fwrite(x = seg,file = paste0(opt$output_dir,'/',clinbarcode,'_dnacopy.seg'),sep = '\t')
-
-
+    
+    
     ## Count file ------
     # (not overwrite, not if input was counts.RDS)
     if (!file.exists(paste0(opt$output_dir,'/',clinbarcode,'.*counts.RDS')))
         if (!str_detect(opt$input_bam,'counts.RDS$'))
             saveRDS(counts,paste0(opt$output_dir,'/',clinbarcode,'.counts.RDS'))
-
-
-
+    
+    
+    
     noise <- function(targets) {
         targets[,loc:=paste(chromosome,round(start/10e6))]
         targets[,n:=.N,by=loc]
         std <- targets[n>=10,sd(log2),by=loc]
         round(2^median(std$V1,na.rm=T)*100-100,1)
     }
-
+    
     if (!this_is_wgs) {
         
         stats <- paste0('Fragments per target: ',
@@ -919,11 +917,11 @@ if (T) {
                                      noise(targets),'%'
     )
     
-
-
-
+    
+    
+    
     # Plot ------------------------------------------------------------
-
+    
     if (T) suppressWarnings( {
         
         
@@ -938,12 +936,12 @@ if (T) {
         ybreaks <- ybreaks[ybreaks >= ylims[1] & ybreaks<=ylims[2]]
         yminorbreaks <- c(1.25,1.75)
         
-        colorvalues <- c('background'='#909090','dense'='#F8766D',
-                         'exonic'='#61ACFF','sparse'='#252525', 'bin'='#252525')
+        colorvalues <- c('background'='#1010D0','dense'='#F8566D',
+                         'exonic'='#00BFA4','sparse'='#000000', 'bin'='#000000')
         
         size <- 1#; if (this_is_wgs) size <- 2
         
-        pointcolor <- '#50505060'
+        pointcolor <- '#00000001'
         
         
         targets[,label:=type][label=='tiled',label:='dense'][label=='target',label:='sparse']
@@ -969,7 +967,12 @@ if (T) {
             targets[,maf:=abs(allele_ratio-.5)+.5]
             targets[!is.na(maf),maf:=runmed(maf,9)] # smoothing!
             # snp (grid) smooth-to-allele-ratio plot
-            p$grid <- ggplot(targets) + xlim(c(.2,1.8)) + scale_y_continuous(limits=c(.5,1)) +
+            p$grid <- ggplot(targets) + xlim(c(.2,1.8)) + 
+                scale_y_continuous(
+                    limits=c(.5,1),
+                    breaks = seq(0.5, .9, by = 0.1),
+                    labels = c('0.5','0.6','0.7','0.8','0.9')
+                ) +
                 xlab('Corrected depth (smooth)') + ylab('Major Allele Ratio') +
                 geom_point(data=targets[,.(smooth_log2,maf)],aes(x=2^smooth_log2,y=maf),col='lightgrey',alpha=.2) +
                 #geom_point(data=targets[,.(gc,log2)],aes(x=gc,y=2^smooth_log2),col='lightgrey',alpha=.2) +
@@ -977,20 +980,29 @@ if (T) {
                 geom_text(data=unique(targets[,.(chromosome)]),mapping = aes(x=.25,y=.95,label=chromosome)) +
                 
                 #geom_point(aes(x=gc,y=2^smooth_log2),fill='#60606090',col='#20202090',shape=21) +
-                geom_point(data=targets[label!='background'],aes(x=2^smooth_log2,y=maf,fill=label,col=label),shape=21,size=size,alpha=alpha) +
+                geom_point(data=targets[label!='background'],aes(x=2^smooth_log2,y=maf,fill=label),shape=21,size=size,alpha=alpha) +
                 facet_wrap(facets = vars(factor(chromosome,levels=unique(chromosome),ordered=T)),ncol = 8) +
                 scale_fill_manual(values = colorvalues) +
-                scale_color_manual(values = colorvalues) +
+                #scale_color_manual(values = colorvalues) +
                 #theme(panel.spacing = unit(0, "lines"),strip.text.x = element_text(size = 8)) +
                 theme(panel.spacing = unit(0, "lines"),strip.background = element_blank(),strip.text.x = element_blank())
             
             # snp (all) smooth-to-allele-ratio plot
             #temp <- targets[!is.na(label),median(log2),by=label]
-            p$nogrid <- ggplot(targets) + xlim(c(0.2,1.8)) + ylim(c(.5,1)) + xlab('Corrected depth (smooth)') + ylab('Major allele ratio (smooth)') +
+            p$nogrid <- ggplot(targets) + xlim(c(0.2,1.8)) + xlab('Corrected depth (smooth)') + ylab('Major allele ratio (smooth)') +
                 #geom_point(data=targets[,.(smooth_log2,maf)],aes(x=2^smooth_log2,y=maf),fill='#60606050',col='#20202050',shape=21,alpha=alpha) +
                 scale_fill_manual(values = colorvalues) +
-                scale_color_manual(values = colorvalues) +
-                geom_point(data=targets[label!=''],aes(x=2^smooth_log2,y=maf,fill=label,col=label),shape=21,size=size,alpha=alpha) #+
+                scale_y_continuous(
+                    limits = c(.5, 1),
+                    sec.axis = sec_axis(
+                        ~ 2 * (. - 0.5),
+                        name = "Homozygous DNA fraction",
+                        breaks = seq(0, 1, by = 0.1),  # set breaks for secondary axis
+                        labels = c('0.0','0.1','0.2','0.3','0.4','0.5','0.6','0.7','0.8','0.9','1.0')  # set labels for secondary axis
+                    )
+                ) +
+                #scale_color_manual(values = colorvalues) +
+                geom_point(data=targets[label!=''],aes(x=2^smooth_log2,y=maf,fill=label),shape=21,size=size,alpha=alpha) #+
             #geom_point(data=temp,mapping=aes(x=2^V1,y=1,fill=label),size=2,shape=25,show.legend=F)
         }
         
@@ -1017,9 +1029,9 @@ if (T) {
         # logR by pos + segments (2nd left)
         p$pos_log2 <- ggplot(targets) + xlab('Genomic position') + ylab('Corrected depth') +
             #geom_point(data=targets[is.na(label)],mapping = aes(x=gpos,y=2^log2),fill='#60606070',col='#20202010',shape=21,size=1,alpha=alpha) +
-            geom_point(data=targets[!is.na(label)],mapping = aes(x=gpos,y=2^log2,fill=label,col=label),shape=21,size=size,alpha=alpha) +
+            geom_point(data=targets[!is.na(label)],mapping = aes(x=gpos,y=2^log2,fill=label),col=pointcolor,shape=21,size=size,alpha=alpha) +
             scale_fill_manual(values = colorvalues) +
-            scale_color_manual(values = colorvalues) +
+            #scale_color_manual(values = colorvalues) +
             scale_y_log10(limits=ylims, breaks=ybreaks, minor_breaks=yminorbreaks) +
             geom_segment(data=segments,col='green',linewidth=1,
                          mapping = aes(x=gstart,xend=gstop,y=2^mean,yend=2^mean)) +
@@ -1038,9 +1050,9 @@ if (T) {
         
         p$pos_rawdepth <- ggplot(targets) + xlab('Genomic position') + ylab('Fragments') +
             #geom_point(data=targets[is_target==T],mapping = aes(x=gpos,y=count),fill='#60606050',col='#20202010',size=1,shape=21,alpha=alpha) +
-            geom_point(data=targets[!is.na(label)],mapping = aes(x=gpos,y=count,fill=label,col=label),shape=21,size=size,alpha=alpha) +
+            geom_point(data=targets[!is.na(label)],mapping = aes(x=gpos,y=count,fill=label),col=pointcolor,shape=21,size=size,alpha=alpha) +
             scale_fill_manual(values = colorvalues) +
-            scale_color_manual(values = colorvalues) +
+            #scale_color_manual(values = colorvalues) +
             scale_y_log10(limits=limits,breaks=limits_breaks,minor_breaks=yminorbreaks,labels=limits_labels) +
             scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
                                expand = c(.01,.01),labels = chroms$chromosome) +
@@ -1054,9 +1066,9 @@ if (T) {
             # allele ratio by pos
             p$pos_alleleratio <- ggplot(targets) + xlab('Genomic position') + ylab('Allele ratio') +
                 #geom_point(data=targets[is.na(label)],mapping = aes(x=gpos,y=allele_ratio),fill='#60606080',col='#20202010',shape=21,size=1,alpha=alpha) +
-                geom_point(data=targets[!is.na(label)],mapping = aes(x=gpos,y=allele_ratio,fill=label,col=label),shape=21,size=1,alpha=alpha/2) +
+                geom_point(data=targets[!is.na(label)],mapping = aes(x=gpos,y=allele_ratio,fill=label),col=pointcolor,shape=21,size=1,alpha=alpha/2) +
                 scale_fill_manual(values = colorvalues) + ylim(0:1) +
-                scale_color_manual(values = colorvalues) +
+                #scale_color_manual(values = colorvalues) +
                 scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
                                    expand = c(.01,.01),labels = chroms$chromosome) +
                 theme(panel.grid.major.x = element_blank(),
@@ -1080,9 +1092,9 @@ if (T) {
         }
         # logR by order
         p$order_log2 <- ggplot(targets) + xlab('Order of genomic position') + ylab('Corrected depth') +
-            geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2,fill=label,col=label),shape=21,size=size,alpha=alpha) +
+            geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2,fill=label),col=pointcolor,shape=21,size=size,alpha=alpha) +
             scale_fill_manual(values = colorvalues) +
-            scale_color_manual(values = colorvalues) +
+            #scale_color_manual(values = colorvalues) +
             scale_y_log10(limits=ylims, breaks=ybreaks, minor_breaks=yminorbreaks) +
             geom_segment(data=segments,col='green',linewidth=1,
                          mapping = aes(x=start,xend=end,y=2^mean,yend=2^mean)) +
@@ -1095,20 +1107,20 @@ if (T) {
                   axis.ticks = element_line())
         # logR by gc
         p$gc_log2 <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth') + xlim(c(.16,.84)) +
-            geom_point(data=targets,mapping = aes(x=gc,y=2^log2,fill=label,col=label),
+            geom_point(data=targets,mapping = aes(x=gc,y=2^log2,fill=label),col=pointcolor,
                        shape=21,size=1,alpha=alpha/2,show.legend = F) + # fill='#60606040'
             facet_wrap(facets = vars(label),nrow = 1) +
             theme(panel.spacing = unit(0, "lines"),strip.background = element_blank(),strip.text.x = element_blank()) +
             scale_fill_manual(values = colorvalues) +
-            scale_color_manual(values = colorvalues) +
+            #scale_color_manual(values = colorvalues) +
             scale_y_log10(limits=ylims, breaks=ybreaks, minor_breaks=yminorbreaks)
         
         # short by order
         p$order_log2_short <- ggplot(targets) + xlab('Order of genomic position') + ylab('Corrected depth') +
             #geom_point(data=targets[is.na(label) & is_target==T],mapping = aes(x=bin,y=2^log2),fill='#60606070',col='#20202010',size=1,alpha=alpha) +
-            geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2_short,fill=label,col=label),shape=21,size=size,alpha=alpha) +
+            geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=2^log2_short,fill=label),col=pointcolor,shape=21,size=size,alpha=alpha) +
             scale_fill_manual(values = colorvalues) +
-            scale_color_manual(values = colorvalues) +
+            #scale_color_manual(values = colorvalues) +
             scale_y_log10(limits=ylims, breaks=ybreaks, minor_breaks=yminorbreaks) +
             scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
                                expand = c(.01,.01),labels = chroms$chromosome) +
@@ -1119,12 +1131,12 @@ if (T) {
                   axis.ticks = element_line())
         # short by gc
         p$gc_log2_short <- ggplot(targets) + xlab('Target GC content') + ylab('Corrected depth') + xlim(c(.16,.84)) +
-            geom_point(data=targets,mapping = aes(x=gc,y=2^log2_short,fill=label,col=label),
+            geom_point(data=targets,mapping = aes(x=gc,y=2^log2_short,fill=label),col=pointcolor,
                        shape=21,size=1,alpha=alpha/2,show.legend = F) + # fill='#60606040'
             facet_wrap(facets = vars(label),nrow = 1) +
             theme(panel.spacing = unit(0, "lines"),strip.background = element_blank(),strip.text.x = element_blank()) +
             scale_fill_manual(values = colorvalues) +
-            scale_color_manual(values = colorvalues) +
+            #scale_color_manual(values = colorvalues) +
             scale_y_log10(limits=ylims, breaks=ybreaks, minor_breaks=yminorbreaks)
         
         
@@ -1138,9 +1150,9 @@ if (T) {
             # allele ratio by order
             p$order_alleleratio <- ggplot(targets) + xlab('Order of genomic position') + ylab('Allele ratio') +
                 #geom_point(data=targets[is.na(label)],mapping = aes(x=bin,y=allele_ratio),fill='#60606050',col='#20202010',shape=21,size=1,alpha=alpha) +
-                geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=allele_ratio,fill=label,col=label),shape=21,size=size,alpha=alpha) +
+                geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=allele_ratio,fill=label),col=pointcolor,shape=21,size=size,alpha=alpha) +
                 scale_fill_manual(values = colorvalues) +
-                scale_color_manual(values = colorvalues) +
+                #scale_color_manual(values = colorvalues) +
                 scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
                                    expand = c(.01,.01),labels = chroms$chromosome) +
                 scale_y_continuous(limits=c(0,1),breaks=c(0,.25,.5,.75,1)) +
@@ -1152,12 +1164,12 @@ if (T) {
             # allele ratio by depth
             p$depth_alleleratio <- ggplot(targets[type!='background']) + xlab('Fragments') + ylab('Allele ratio') +
                 #geom_point(data=targets[is.na(label)],mapping = aes(x=count,y=allele_ratio),fill='#60606070',col='#20202070',shape=21,size=1) +
-                geom_point(mapping = aes(x=count,y=allele_ratio,fill=label,col=label),
+                geom_point(mapping = aes(x=count,y=allele_ratio,fill=label),col=pointcolor,
                            shape=21,size=1,alpha=alpha/2,show.legend = F) +
                 #facet_wrap(facets = vars(label),nrow = 1) +
                 theme(panel.spacing = unit(0, "lines"),strip.background = element_blank(),strip.text.x = element_blank()) +
                 scale_fill_manual(values = colorvalues) +
-                scale_color_manual(values = colorvalues) +
+                #scale_color_manual(values = colorvalues) +
                 scale_x_log10(limits=c(m[1],m[3])) +
                 scale_y_continuous(limits=c(-.05,1.05),breaks=c(0,.25,.5,.75,1))
         }
@@ -1167,9 +1179,9 @@ if (T) {
         # depth by order
         p$order_rawdepth <- ggplot(targets) + xlab('Order of genomic position') + ylab('Fragments') +
             #geom_point(data=targets[is_target==T],mapping = aes(x=bin,y=count),fill='#60606050',col='#20202010',size=1,shape=21,alpha=alpha) +
-            geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=count,fill=label,col=label),shape=21,size=size,alpha=alpha) +
+            geom_point(data=targets[!is.na(label)],mapping = aes(x=bin,y=count,fill=label),col=pointcolor,shape=21,size=size,alpha=alpha) +
             scale_fill_manual(values = colorvalues) +
-            scale_color_manual(values = colorvalues) +
+            #scale_color_manual(values = colorvalues) +
             scale_y_log10(limits=limits,breaks=limits_breaks,minor_breaks=yminorbreaks,labels=limits_labels) +
             scale_x_continuous(breaks = chroms$mid,minor_breaks = chroms$start[-1],
                                expand = c(.01,.01),labels = chroms$chromosome) +
@@ -1180,7 +1192,7 @@ if (T) {
                   axis.ticks = element_line())
         # depth by GC
         p$gc_rawdepth <- ggplot(targets) + xlab('Target GC content') + ylab('Fragments') + xlim(c(.16,.84)) +
-            geom_point(data=targets,mapping = aes(x=gc,y=count,fill=label,col=label),
+            geom_point(data=targets,mapping = aes(x=gc,y=count,fill=label),col=pointcolor,
                        shape=21,size=1,alpha=alpha/2,show.legend = F) + #
             facet_wrap(facets = vars(label),nrow = 1) +
             theme(panel.spacing = unit(0, "lines"),strip.background = element_blank(),strip.text.x = element_blank()) +
@@ -1189,7 +1201,7 @@ if (T) {
             # geom_smooth(data=targets[!is.na(label)],
             #             mapping = aes(x=gc,y=count,col=label),size=.5,se=F,show.legend = F,method = 'loess') +
             scale_fill_manual(values = colorvalues) +
-            scale_color_manual(values = colorvalues) +
+            #scale_color_manual(values = colorvalues) +
             scale_y_log10(limits=limits,breaks=limits_breaks,minor_breaks=yminorbreaks,labels=limits_labels)
         
         
@@ -1257,7 +1269,7 @@ if (T) {
         
         
         dev.off()
-
+        
         
     })
     
