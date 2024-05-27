@@ -863,7 +863,7 @@ if (T) {
     ## CNR/CNS ------
     # cnr:  chromosome      start   end     gene    depth   log2    weight ()
     cnr <- targets[!is.na(log2),.(chromosome=as.character(chromosome),start,end,gene,
-                                  depth=round(count/width*200,3),log2,weight=1,
+                                  depth=count,log2,weight=1,
                                   gc,count,type)][gene=='',gene:='-']
     
     fwrite(x = cnr,file = paste0(opt$output_dir,'/',clinbarcode,'.cnr'),sep = '\t')
@@ -948,7 +948,7 @@ if (T) {
         
         
         
-        if (this_is_wgs) alpha <- .2
+        if (this_is_wgs) alpha <- .25
         
         
         ## Grid ------------------------------------------------------------
