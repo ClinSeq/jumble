@@ -871,8 +871,8 @@ if (T) {
     # cns:  chromosome      start   end     gene    log2    depth   probes  weight
     cns <- segments[,.(chromosome,start=start_pos,end=end_pos,
                        gene=genes,
-                       log2=round(mean,2),
-                       depth=round(2^mean,2),
+                       log2=round(mean,3),
+                       depth=round(2^mean,3),
                        probes=nbrOfLoci,
                        relevance)]
     fwrite(x = cns,file = paste0(opt$output_dir,'/',clinbarcode,'.cns'),sep = '\t')
